@@ -651,7 +651,7 @@ static int apcie_glue_init(struct apcie_dev *sc)
 
 	sc_info("apcie glue probe\n");
 
-	if (!request_mem_region(pci_resource_start(sc->pdev, 4) +
+	if (!request_mem_region(pci_resource_start(sc->pdev, sc->glue_bar_to_use_num) +
 				APCIE_RGN_PCIE_BASE, APCIE_RGN_PCIE_SIZE,
 				"apcie.glue")) {
 		sc_err("Failed to request pcie region\n");
@@ -659,22 +659,24 @@ static int apcie_glue_init(struct apcie_dev *sc)
 
 	}
 
-	if (!request_mem_region(pci_resource_start(sc->pdev, 2) +
+	// Use the opposite number of the bar to use
+	if (!request_mem_region(pci_resource_start(sc->pdev, sc->glue_bar_to_use_num == 2 ? 4 : 2) +
 				APCIE_RGN_CHIPID_BASE, APCIE_RGN_CHIPID_SIZE,
 				"apcie.chipid")) {
 		sc_err("Failed to request chipid region\n");
-		release_mem_region(pci_resource_start(sc->pdev, 4) +
+		release_mem_region(pci_resource_start(sc->pdev, sc->glue_bar_to_use_num) +
 				   APCIE_RGN_PCIE_BASE, APCIE_RGN_PCIE_SIZE);
 		return -EBUSY;
 	}
 
-	glue_set_region(sc, AEOLIA_FUNC_ID_PCIE, 2, 0xbf018000, 0x7fff);
+	// Apparently baikal doesn't do this
+	if(!sc->is_baikal)
+		glue_set_region(sc, AEOLIA_FUNC_ID_PCIE, 2, 0xbf018000, 0x7fff);
 
-	if(sc->pdev->device == )
 	sc_info("Aeolia chip revision: %08x:%08x:%08x\n",
-		ioread32(sc->bar2 + APCIE_REG_CHIPID_0),
-		ioread32(sc->bar2 + APCIE_REG_CHIPID_1),
-		ioread32(sc->bar2 + APCIE_REG_CHIPREV));
+		ioread32(sc->glue_bar_to_use + APCIE_REG_CHIPID_0),
+		ioread32(sc->glue_bar_to_use + APCIE_REG_CHIPID_1),
+		ioread32(sc->glue_bar_to_use + APCIE_REG_CHIPREV));
 
 	/* Mask all MSIs first, to avoid spurious IRQs */
 	for (i = 0; i < AEOLIA_NUM_FUNCS; i++) {
@@ -686,22 +688,28 @@ static int apcie_glue_init(struct apcie_dev *sc)
 	for (i = 0; i < 0xfc; i += 4)
 		glue_write32(sc, APCIE_REG_MSI_DATA_LO(i), 0);
 
-	glue_set_region(sc, AEOLIA_FUNC_ID_GBE, 0, 0xbfa00000, 0x3fff);
-	glue_set_region(sc, AEOLIA_FUNC_ID_AHCI, 5, 0xbfa04000, 0xfff);
-	glue_set_region(sc, AEOLIA_FUNC_ID_SDHCI, 0, 0xbfa80000, 0xfff);
-	glue_set_region(sc, AEOLIA_FUNC_ID_SDHCI, 1, 0, 0);
-	glue_set_region(sc, AEOLIA_FUNC_ID_DMAC, 0, 0xbfa05000, 0xfff);
-	glue_set_region(sc, AEOLIA_FUNC_ID_DMAC, 1, 0, 0);
-	glue_set_region(sc, AEOLIA_FUNC_ID_DMAC, 2, 0xbfa06000, 0xfff);
-	glue_set_region(sc, AEOLIA_FUNC_ID_DMAC, 3, 0, 0);
-	glue_set_region(sc, AEOLIA_FUNC_ID_MEM, 2, 0xc0000000, 0x3fffffff);
-	glue_set_region(sc, AEOLIA_FUNC_ID_MEM, 3, 0, 0);
-	glue_set_region(sc, AEOLIA_FUNC_ID_XHCI, 0, 0xbf400000, 0x1fffff);
-	glue_set_region(sc, AEOLIA_FUNC_ID_XHCI, 1, 0, 0);
-	glue_set_region(sc, AEOLIA_FUNC_ID_XHCI, 2, 0xbf600000, 0x1fffff);
-	glue_set_region(sc, AEOLIA_FUNC_ID_XHCI, 3, 0, 0);
-	glue_set_region(sc, AEOLIA_FUNC_ID_XHCI, 4, 0xbf800000, 0x1fffff);
-	glue_set_region(sc, AEOLIA_FUNC_ID_XHCI, 5, 0, 0);
+	if(!sc->is_baikal) {
+		glue_set_region(sc, AEOLIA_FUNC_ID_GBE, 0, 0xbfa00000, 0x3fff);
+		glue_set_region(sc, AEOLIA_FUNC_ID_AHCI, 5, 0xbfa04000, 0xfff);
+		glue_set_region(sc, AEOLIA_FUNC_ID_SDHCI, 0, 0xbfa80000, 0xfff);
+		glue_set_region(sc, AEOLIA_FUNC_ID_SDHCI, 1, 0, 0);
+		glue_set_region(sc, AEOLIA_FUNC_ID_DMAC, 0, 0xbfa05000, 0xfff);
+		glue_set_region(sc, AEOLIA_FUNC_ID_DMAC, 1, 0, 0);
+		glue_set_region(sc, AEOLIA_FUNC_ID_DMAC, 2, 0xbfa06000, 0xfff);
+		glue_set_region(sc, AEOLIA_FUNC_ID_DMAC, 3, 0, 0);
+		glue_set_region(sc, AEOLIA_FUNC_ID_MEM, 2, 0xc0000000,
+				0x3fffffff);
+		glue_set_region(sc, AEOLIA_FUNC_ID_MEM, 3, 0, 0);
+		glue_set_region(sc, AEOLIA_FUNC_ID_XHCI, 0, 0xbf400000,
+				0x1fffff);
+		glue_set_region(sc, AEOLIA_FUNC_ID_XHCI, 1, 0, 0);
+		glue_set_region(sc, AEOLIA_FUNC_ID_XHCI, 2, 0xbf600000,
+				0x1fffff);
+		glue_set_region(sc, AEOLIA_FUNC_ID_XHCI, 3, 0, 0);
+		glue_set_region(sc, AEOLIA_FUNC_ID_XHCI, 4, 0xbf800000,
+				0x1fffff);
+		glue_set_region(sc, AEOLIA_FUNC_ID_XHCI, 5, 0, 0);
+	}
 
 	create_irq_domains(sc);
 	if (!sc->irqdomain) {
@@ -735,10 +743,21 @@ static void apcie_glue_remove(struct apcie_dev *sc) {
 		irq_domain_remove(sc->irqdomain);
 		sc->irqdomain = NULL;
 	}
-	release_mem_region(pci_resource_start(sc->pdev, 2) +
-			   APCIE_RGN_CHIPID_BASE, APCIE_RGN_CHIPID_SIZE);
-	release_mem_region(pci_resource_start(sc->pdev, 4) +
-			   APCIE_RGN_PCIE_BASE, APCIE_RGN_PCIE_SIZE);
+
+	// TODO (ps4patches): What does this resource length mean?
+	if(sc->is_baikal) {
+		release_mem_region(pci_resource_start(sc->pdev, 4),
+				   pci_resource_len(sc->pdev, 4));
+		release_mem_region(pci_resource_start(sc->pdev, sc->glue_bar_to_use_num),
+				   pci_resource_len(sc->pdev, sc->glue_bar_to_use_num));
+	} else {
+		release_mem_region(pci_resource_start(sc->pdev, 2) +
+					   APCIE_RGN_CHIPID_BASE,
+				   APCIE_RGN_CHIPID_SIZE);
+		release_mem_region(pci_resource_start(sc->pdev, sc->glue_bar_to_use_num) +
+					   APCIE_RGN_PCIE_BASE,
+				   APCIE_RGN_PCIE_SIZE);
+	}
 }
 
 #ifdef CONFIG_PM

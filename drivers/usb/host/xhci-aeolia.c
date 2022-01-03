@@ -139,8 +139,8 @@ static void xhci_aeolia_remove_one(struct pci_dev *dev, int index)
 	usb_remove_hcd(hcd);
 	usb_put_hcd(xhci->shared_hcd);
 
-	// TODO (ps4patches): Does this really need to be disabled?
-	if(dev->device == PCI_DEVICE_ID_SONY_BELIZE_XHCI) {
+	if(dev->device == PCI_DEVICE_ID_SONY_BELIZE_XHCI ||
+	   dev->device == PCI_DEVICE_ID_SONY_BAIKAL_XHCI) {
 		iounmap(hcd->regs);
 	}
 	usb_put_hcd(hcd);
@@ -169,7 +169,7 @@ static int ahci_init_one(struct pci_dev *pdev)
 	struct ata_port_info pi = ahci_port_info;
 	const struct ata_port_info *ppi[] = { &pi, NULL };
 	struct ahci_host_priv *hpriv;
-      struct ata_host *host;
+      	struct ata_host *host;
 	int n_ports, i, rc;
 	int ahci_pci_bar = 2;
 	resource_size_t		rsrc_start;
@@ -220,11 +220,20 @@ static int ahci_init_one(struct pci_dev *pdev)
 
 		ctlr = kzalloc(sizeof(*ctlr), GFP_KERNEL);
 		if (ctlr) {
-			ctlr->r_mem = r_mem;
-			ctlr->dev_id = 0; //or 0x90ca104d;
-			ctlr->trace_len = 6;
-			belize_pcie_sata_phy_init(&pdev->dev, ctlr);
-			kfree(ctlr);
+			// Yes, XHCI is used here on purpose
+			if(pdev->device == PCI_DEVICE_ID_SONY_BAIKAL_XHCI) {
+				ctlr->r_mem = r_mem;
+				ctlr->dev_id = 0x90DE104D;
+				ctlr->apcie_bpcie_buffer = 0x04;//for ahci 0x024
+				baikal_pcie_sata_phy_init(&pdev->dev, ctlr);
+				kfree(ctlr);
+			} else {
+				ctlr->r_mem = r_mem;
+				ctlr->dev_id = 0; //or 0x90ca104d;
+				ctlr->trace_len = 6;
+				belize_pcie_sata_phy_init(&pdev->dev, ctlr);
+				kfree(ctlr);
+			}
 		}
 		kfree(r_mem);
 	}
@@ -276,10 +285,14 @@ static int ahci_init_one(struct pci_dev *pdev)
 
 	host->private_data = hpriv;
 
+	if (pdev->device == PCI_DEVICE_ID_SONY_BELIZE_XHCI)
 	{
 		int index = 1;
 		int irq = (axhci->nr_irqs > 1) ? (pdev->irq + index) : pdev->irq;
 		hpriv->irq = irq;
+	} else {
+		// TODO (ps4patches): Can't this be used for belize too?
+		hpriv->irq = pci_irq_vector(pdev, 1);
 	}
 
 	if (!(hpriv->cap & HOST_CAP_SSS) || ahci_ignore_sss)
@@ -318,6 +331,10 @@ static int ahci_init_one(struct pci_dev *pdev)
 	if (!bus_master) {
 		pci_set_master(pdev);
 		bus_master = true;
+	}
+
+	if (pdev->device == PCI_DEVICE_ID_SONY_BAIKAL_XHCI) {
+		ahci_sht.dma_boundary = 0xB7FFFFFFLL;
 	}
 
 	rc = ahci_host_activate(host, &ahci_sht);

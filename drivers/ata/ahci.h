@@ -464,7 +464,7 @@ struct f_resource
 	void __iomem * r_bushandle;
 };
 
-struct baikal_ahci_controller
+struct ahci_controller
 {
 	void *dev;
 	int dev_id;
@@ -473,6 +473,7 @@ struct baikal_ahci_controller
 	struct f_resource *r_mem;
 	//struct rman sc_iomem;
 	//struct ahci_controller_irq irqs[16];
+	u32 trace_len;
 	u32 caps;
 	u32 caps2;
 	u32 capsem;
@@ -521,22 +522,8 @@ static inline u32 bpcie_ahci_read(struct f_resource *r_mem, u32 offset) {
 	return ioread32(r_mem->r_bushandle + offset);
 }
 
-struct ahci_controller{
-	void *dev;
-	int dev_id;
-	struct f_resource *r_mem;
-	u32 trace_len;
-};
-
 void belize_pcie_sata_phy_init(struct device *dev, struct ahci_controller *ctlr);
 
-static inline void bpcie_ahci_write(struct f_resource *r_mem, u32 offset, u32 val) {
-	iowrite32(val, r_mem->r_bushandle + offset);
-}
-
-static inline u32 bpcie_ahci_read(struct f_resource *r_mem, u32 offset) {
-		return ioread32(r_mem->r_bushandle + offset);
-}
 #endif
 
 
