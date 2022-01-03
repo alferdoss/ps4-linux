@@ -223,7 +223,7 @@ static int ahci_init_one(struct pci_dev *pdev)
 			ctlr->r_mem = r_mem;
 			ctlr->dev_id = 0; //or 0x90ca104d;
 			ctlr->trace_len = 6;
-			bpcie_sata_phy_init(&pdev->dev, ctlr);
+			belize_pcie_sata_phy_init(&pdev->dev, ctlr);
 			kfree(ctlr);
 		}
 		kfree(r_mem);
