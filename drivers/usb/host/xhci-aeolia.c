@@ -394,12 +394,18 @@ static int xhci_aeolia_probe(struct pci_dev *dev, const struct pci_device_id *id
 	}
 	pci_set_drvdata(dev, axhci);
 
-	axhci->nr_irqs = retval = apcie_assign_irqs(dev, NR_DEVICES);
+	if (pdev->device == PCI_DEVICE_ID_SONY_BELIZE_XHCI) {
+		axhci->nr_irqs = retval = apcie_assign_irqs(dev, NR_DEVICES);
+	} else {
+		axhci->nr_irqs = retval = pci_alloc_irq_vectors(
+			dev, NR_DEVICES, INT_MAX, PCI_IRQ_MSIX | PCI_IRQ_MSI);
+	}
+
 	if (retval < 0) {
 		goto free_axhci;
 	}
 
-	if(dev->device != PCI_DEVICE_ID_SONY_BELIZE_XHCI) {
+	if(dev->device == PCI_DEVICE_ID_SONY_AEOLIA_XHCI) {
 		pci_set_master(dev);
 	}
 
@@ -408,7 +414,7 @@ static int xhci_aeolia_probe(struct pci_dev *dev, const struct pci_device_id *id
 		return -ENODEV;
 	}
 
-	if(dev->device == PCI_DEVICE_ID_SONY_BELIZE_XHCI) {
+	if(dev->device != PCI_DEVICE_ID_SONY_AEOLIA_XHCI) {
 		retval = ahci_init_one(dev);
 		dev_dbg(&dev->dev, "ahci_init_one returned %d", retval);
 		if (!bus_master) {
@@ -435,8 +441,8 @@ remove_hcds:
 free_axhci:
 	devm_kfree(&dev->dev, axhci);
 
-	// TODO (ps4patches): Don't aeolia and baikal also need this?
-	if(dev->device == PCI_DEVICE_ID_SONY_BELIZE_XHCI) {
+	// TODO (ps4patches): Doesn't aeolia also need this?
+	if(dev->device != PCI_DEVICE_ID_SONY_AEOLIA_XHCI) {
 		pci_set_drvdata(dev, NULL);
 	}
 disable_device:
@@ -455,7 +461,7 @@ static void xhci_aeolia_remove(struct pci_dev *dev)
 		if(dev->device != PCI_DEVICE_ID_SONY_AEOLIA_XHCI) {
 			if(idx != 1)
 				xhci_aeolia_remove_one(dev, idx);
-			else if (dev->device == PCI_DEVICE_ID_SONY_BELIZE_XHCI)
+			else if (dev->device != PCI_DEVICE_ID_SONY_AEOLIA_XHCI)
 				ahci_remove_one(dev);
 		}
 		else
@@ -464,16 +470,17 @@ static void xhci_aeolia_remove(struct pci_dev *dev)
 
 	apcie_free_irqs(dev->irq, axhci->nr_irqs);
 
-	// TODO (ps4patches): Belize, remove in ahci commit
-	kfree(axhci);
+	if(dev->device == PCI_DEVICE_ID_SONY_AEOLIA_XHCI) {
+		kfree(axhci);
+	}
 
 	pci_disable_device(dev);
 }
 
 static void xhci_hcd_pci_shutdown(struct pci_dev *dev){
 
-	// We want to use the normal shutdown if we aren't belize
-	if (dev->device != PCI_DEVICE_ID_SONY_BELIZE_XHCI)
+	// We want to use the normal shutdown if we are aeolia
+	if (dev->device != PCI_DEVICE_ID_SONY_AEOLIA_XHCI)
 	{
 		usb_hcd_pci_shutdown(dev);
 		return;
