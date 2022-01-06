@@ -1985,9 +1985,9 @@ static void ahci_remove_one(struct pci_dev *pdev)
 }
 
 #ifdef CONFIG_X86_PS4
-void baikal_pcie_sata_phy_init(struct device *dev, struct baikal_ahci_controller *ctlr)
+void baikal_pcie_sata_phy_init(struct device *dev, struct ahci_controller *ctlr)
 {
-	struct baikal_ahci_controller *ctlr_; // r15
+	struct ahci_controller *ctlr_; // r15
 	__int64 v6; // rax
 	void (**v7)(void *, void *, _QWORD, int *); // rbx
 	int dev_id; // er12

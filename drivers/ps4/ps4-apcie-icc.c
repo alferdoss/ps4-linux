@@ -429,7 +429,7 @@ static void icc_shutdown(void)
 	WARN_ON(1);
 }
 
-static void icc_reboot(void)
+void icc_reboot(void)
 {
 	uint8_t command[] = {
 		0, 1, 2, 0, 1, 0

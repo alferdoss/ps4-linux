@@ -37,11 +37,11 @@ static const int baikal_subfuncs_per_func[AEOLIA_NUM_FUNCS] = {
 };
 
 static inline u32 glue_read32(struct apcie_dev *sc, u32 offset) {
-	return ioread32(sc->glue_bar_to_use + offset);
+	return ioread32((const void __iomem *) sc->glue_bar_to_use + offset);
 }
 
 static inline void glue_write32(struct apcie_dev *sc, u32 offset, u32 value) {
-	iowrite32(value, sc->glue_bar_to_use + offset);
+	iowrite32(value,(const void __iomem *) sc->glue_bar_to_use + offset);
 }
 
 static inline void glue_set_region(struct apcie_dev *sc, u32 func, u32 bar,
@@ -584,9 +584,7 @@ int apcie_assign_irqs(struct pci_dev *dev, int nvec)
 	//info.msi_dev = sc->pdev;
 	info.devid = pci_dev_id(sc->pdev);
 
-	int i, base = 0;
 	struct msi_desc *desc;
-	struct device* bare_dev = &sc->pdev->dev;
 
 	/* Our hwirq number is function << 8 plus subfunction.
 	 * Subfunction is usually 0 and implicitly increments per hwirq,
@@ -602,13 +600,13 @@ int apcie_assign_irqs(struct pci_dev *dev, int nvec)
 #endif
 
 	if(!dev->msi_enabled) {
-		desc = alloc_msi_entry(bare_dev, nvec, NULL);
+		desc = alloc_msi_entry(&sc->pdev->dev, nvec, NULL);
 
 		info.desc = desc;
 		info.data = sc;
 
 		dev_info(&dev->dev, "apcie_assign_irqs(%d) (%d)\n", nvec,
-			 info.hwirq);
+			 (int)info.hwirq);
 
 		ret = irq_domain_alloc_irqs(sc->irqdomain, nvec, NUMA_NO_NODE,
 					    &info);

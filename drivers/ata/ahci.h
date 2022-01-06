@@ -489,7 +489,7 @@ struct ahci_controller
 	void *apcie_bpcie_buffer;
 };
 
-void baikal_pcie_sata_phy_init(struct device *dev, struct baikal_ahci_controller *ctlr);
+void baikal_pcie_sata_phy_init(struct device *dev, struct ahci_controller *ctlr);
 static inline u32 __indword(u32 port) {return 0;}
 static inline void __outdword(u32 port, u32 val) {}
 

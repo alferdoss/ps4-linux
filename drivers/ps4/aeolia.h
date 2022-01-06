@@ -246,14 +246,15 @@ static inline void cpu_stop(void)
 }
 
 static inline void stop_hpet_timers(struct apcie_dev *sc) {
-		*(volatile u64 *)(sc->bar2 + BPCIE_HPET_BASE + 0x10) &= ~(1UL << 0);  //General Configuration Register
-		u64 NUM_TIM_CAP;
-		NUM_TIM_CAP = *(volatile u64 *)(sc->bar2 + BPCIE_HPET_BASE) & 0x1F00;
-		u64 N;
-		for (N = 0; N <= NUM_TIM_CAP; N++) {
-			*(volatile u64 *)(sc->bar2 + BPCIE_HPET_BASE + (0x20*N) + 0x100) &= ~(1UL << 2); //Timer N Configuration and Capabilities Register
-		}
-		cpu_stop();
+	u64 NUM_TIM_CAP;
+	u64 N;
+
+	*(volatile u64 *)(sc->bar2 + BPCIE_HPET_BASE + 0x10) &= ~(1UL << 0);  //General Configuration Register
+	NUM_TIM_CAP = *(volatile u64 *)(sc->bar2 + BPCIE_HPET_BASE) & 0x1F00;
+	for (N = 0; N <= NUM_TIM_CAP; N++) {
+		*(volatile u64 *)(sc->bar2 + BPCIE_HPET_BASE + (0x20*N) + 0x100) &= ~(1UL << 2); //Timer N Configuration and Capabilities Register
+	}
+	cpu_stop();
 }
 
 static inline int pci_pm_stop(struct pci_dev *dev)
@@ -278,7 +279,6 @@ static inline int pci_pm_stop(struct pci_dev *dev)
 static inline void pci_pm_stop_all(struct pci_dev *dev)
 {
 	struct pci_dev *sc_dev;
-	unsigned int sc_devfn;
 	unsigned int func;
 	for (func = 0; func < 8; ++func) {
 		sc_dev = pci_get_slot(pci_find_bus(pci_domain_nr(dev->bus), 0), PCI_DEVFN(20, func));

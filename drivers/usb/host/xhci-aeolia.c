@@ -394,7 +394,7 @@ static int xhci_aeolia_probe(struct pci_dev *dev, const struct pci_device_id *id
 	}
 	pci_set_drvdata(dev, axhci);
 
-	if (pdev->device == PCI_DEVICE_ID_SONY_BELIZE_XHCI) {
+	if (dev->device == PCI_DEVICE_ID_SONY_BELIZE_XHCI) {
 		axhci->nr_irqs = retval = apcie_assign_irqs(dev, NR_DEVICES);
 	} else {
 		axhci->nr_irqs = retval = pci_alloc_irq_vectors(
