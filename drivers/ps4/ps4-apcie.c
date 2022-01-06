@@ -25,7 +25,7 @@
 
 /* #define QEMU_HACK_NO_IOMMU */
 
-static void apcie_set_desc(msi_alloc_info_t *arg, struct msi_desc *desc);
+void apcie_set_desc(msi_alloc_info_t *arg, struct msi_desc *desc);
 
 /* Number of implemented MSI registers per function */
 static const int aeolia_belize_subfuncs_per_func[AEOLIA_NUM_FUNCS] = {
@@ -37,11 +37,11 @@ static const int baikal_subfuncs_per_func[AEOLIA_NUM_FUNCS] = {
 };
 
 static inline u32 glue_read32(struct apcie_dev *sc, u32 offset) {
-	return ioread32((const void __iomem *) sc->glue_bar_to_use + offset);
+	return ioread32((void __iomem *) sc->glue_bar_to_use + offset);
 }
 
 static inline void glue_write32(struct apcie_dev *sc, u32 offset, u32 value) {
-	iowrite32(value,(const void __iomem *) sc->glue_bar_to_use + offset);
+	iowrite32(value,(void __iomem *) sc->glue_bar_to_use + offset);
 }
 
 static inline void glue_set_region(struct apcie_dev *sc, u32 func, u32 bar,
@@ -106,6 +106,24 @@ static void apcie_config_msi(struct apcie_dev *sc, u32 func, u32 subfunc,
 	glue_set_mask(sc, APCIE_REG_MSI_CONTROL, APCIE_REG_MSI_CONTROL_ENABLE);
 }
 
+static void baikal_msi_write_msg(struct irq_data *data, struct msi_msg *msg)
+{
+	struct apcie_dev *sc = data->chip_data;
+
+	/* Linux likes to unconfigure MSIs like this, but since we share the
+	 * address between subfunctions, we can't do that. The IRQ should be
+	 * masked via apcie_msi_mask anyway, so just do nothing. */
+	if (!msg->address_lo) {
+		return;
+	}
+
+	dev_dbg(data->common->msi_desc->dev, "baikal_msi_write_msg(%08x, %08x) mask=0x%x irq=%d hwirq=0x%lx %p\n",
+		msg->address_lo, msg->data, data->mask, data->irq, data->hwirq, sc);
+
+
+	pci_msi_domain_write_msg(data, msg);
+}
+
 static void apcie_msi_write_msg(struct irq_data *data, struct msi_msg *msg)
 {
 	struct apcie_dev *sc = data->chip_data;
@@ -123,28 +141,18 @@ static void apcie_msi_write_msg(struct irq_data *data, struct msi_msg *msg)
 	       msg->address_lo, msg->data, data->mask, data->irq, data->hwirq,
 	       sc);
 
-	if (sc->is_baikal) {
-		pci_msi_domain_write_msg(data, msg);
-	} else {
-		if (subfunc == 0x1f) {
-			int i;
-			for (i = 0; i < aeolia_belize_subfuncs_per_func[func];
-			     i++)
-				apcie_config_msi(sc, func, i, msg->address_lo,
-						 msg->data);
-		} else {
-			apcie_config_msi(sc, func, subfunc, msg->address_lo,
+	if (subfunc == 0x1f) {
+		int i;
+		for (i = 0; i < aeolia_belize_subfuncs_per_func[func];
+		     i++)
+			apcie_config_msi(sc, func, i, msg->address_lo,
 					 msg->data);
-		}
+	} else {
+		apcie_config_msi(sc, func, subfunc, msg->address_lo,
+				 msg->data);
 	}
 }
 
-static int apcie_msi_prepare(struct irq_domain *domain, struct device *dev,
-			     int nvec, msi_alloc_info_t *arg)
-{
-	memset(arg, 0, sizeof(*arg));
-	return 0;
-}
 
 static void baikal_pcie_msi_unmask(struct irq_data *data)
 {
@@ -237,12 +245,8 @@ static void apcie_msi_unmask(struct irq_data *data)
 	u32 func = data->hwirq >> 8;
 	struct msi_desc *desc = irq_data_get_msi_desc(data);
 
-	if(sc->is_baikal) {
-		baikal_pcie_msi_unmask(data);
-	} else {
-		desc->msi_mask |= data->mask;
-		glue_set_mask(sc, APCIE_REG_MSI_MASK(func), data->mask);
-	}
+	desc->msi_mask |= data->mask;
+	glue_set_mask(sc, APCIE_REG_MSI_MASK(func), data->mask);
 }
 
 static void apcie_msi_mask(struct irq_data *data)
@@ -252,43 +256,34 @@ static void apcie_msi_mask(struct irq_data *data)
 
 	struct msi_desc *desc = irq_data_get_msi_desc(data);
 
-	if(sc->is_baikal) {
-		baikal_pcie_msi_mask(data);
-	} else {
-		desc->msi_mask &= ~data->mask;
-		glue_clear_mask(sc, APCIE_REG_MSI_MASK(func), data->mask);
-	}
+	desc->msi_mask &= ~data->mask;
+	glue_clear_mask(sc, APCIE_REG_MSI_MASK(func), data->mask);
 }
 
 static void apcie_msi_calc_mask(struct irq_data *data) {
 	u32 func = data->hwirq >> 8;
 	u32 subfunc = data->hwirq & 0x1f;
 
-	struct apcie_dev *sc = data->chip_data;
-
-	if(sc->is_baikal) {
-		data->mask = 1 << subfunc;
+	if (subfunc == 0x1f) {
+		data->mask =
+			(1 << aeolia_belize_subfuncs_per_func[func]) - 1;
 	} else {
-		if (subfunc == 0x1f) {
-			data->mask =
-				(1 << aeolia_belize_subfuncs_per_func[func]) -
-				1;
-		} else {
-			data->mask = 1 << subfunc;
-		}
+		data->mask = 1 << subfunc;
 	}
 }
 
 // TODO (ps4patches): This is awesome, make this for aeolia as well
 static void baikal_handle_edge_irq(struct irq_desc *desc)
 {
+	u32 vector_read;
+	unsigned int vector_to_write;
+	unsigned int mask;
+	char shift;
+
 	//return handle_edge_irq(desc);
 	u32 func = (desc->irq_data.hwirq >> 5) & 7;
 	u32 initial_hwirq = desc->irq_data.hwirq & ~0x1fLL;
 	//sc_dbg("bpcie_handle_edge_irq(hwirq=0x%X, irq=0x%X)\n", vector, desc->irq_data.irq);
-	unsigned int vector_to_write;
-	unsigned int mask;
-	char shift;
 
 	if (func == 4)          // Baikal Glue, 5 bits for subfunctions
 	{
@@ -315,7 +310,7 @@ static void baikal_handle_edge_irq(struct irq_desc *desc)
 	raw_spin_lock(&desc->lock); //TODO: try it
 	struct apcie_dev *sc = desc->irq_data.chip_data;
 	glue_write32(sc, BPCIE_ACK_WRITE, vector_to_write);
-	u32 vector_read = glue_read32(sc, BPCIE_ACK_READ);
+	vector_read = glue_read32(sc, BPCIE_ACK_READ);
 	raw_spin_unlock(&desc->lock);
 
 	unsigned int subfunc_mask = mask & ~(vector_read >> shift);
@@ -331,16 +326,6 @@ static void baikal_handle_edge_irq(struct irq_desc *desc)
 				handle_edge_irq(new_desc);
 			}
 		}
-	}
-}
-
-static void ps4_handle_edge_irq(struct irq_desc *desc)
-{
-	if(((struct apcie_dev*)irq_desc_get_chip_data(desc))->is_baikal) {
-		baikal_handle_edge_irq(desc);
-	} else {
-		// TODO (ps4patches): Make a construction like baikal
-		handle_edge_irq(desc);
 	}
 }
 
@@ -384,15 +369,6 @@ static void baikal_irq_msi_compose_msg(struct irq_data *data, struct msi_msg *ms
 		MSI_DATA_VECTOR(cfg->vector);
 }
 
-void irq_msi_compose_msg(struct irq_data *data, struct msi_msg *msg)
-{
-	if (((struct apcie_dev*) data->chip_data)->is_baikal) {
-		baikal_irq_msi_compose_msg(data, msg);
-	} else {
-		apcie_irq_msi_compose_msg(data, msg);
-	}
-}
-
 static struct irq_chip apcie_msi_controller = {
 	.name = "Aeolia-MSI",
 	.irq_unmask = apcie_msi_unmask,
@@ -402,6 +378,19 @@ static struct irq_chip apcie_msi_controller = {
 	.irq_retrigger = irq_chip_retrigger_hierarchy,
 	.irq_compose_msi_msg = apcie_irq_msi_compose_msg,
 	.irq_write_msi_msg = apcie_msi_write_msg,
+	.flags = IRQCHIP_SKIP_SET_WAKE | IRQCHIP_AFFINITY_PRE_STARTUP,
+};
+
+// We still call it Aeolia-MSI so vector.c can identify it as a ps4 southbridge
+static struct irq_chip baikal_pcie_msi_controller = {
+	.name = "Aeolia-MSI",
+	.irq_unmask = baikal_pcie_msi_unmask,
+	.irq_mask = baikal_pcie_msi_mask,
+	.irq_ack = irq_chip_ack_parent,
+	.irq_set_affinity = msi_domain_set_affinity,
+	.irq_retrigger = irq_chip_retrigger_hierarchy,
+	.irq_compose_msi_msg = baikal_irq_msi_compose_msg,
+	.irq_write_msi_msg = baikal_msi_write_msg,
 	.flags = IRQCHIP_SKIP_SET_WAKE | IRQCHIP_AFFINITY_PRE_STARTUP,
 };
 
@@ -449,27 +438,36 @@ static struct msi_domain_info apcie_msi_domain_info = {
 	.flags		= MSI_FLAG_USE_DEF_DOM_OPS | MSI_FLAG_USE_DEF_CHIP_OPS,
 	.ops		= &apcie_msi_domain_ops,
 	.chip		= &apcie_msi_controller,
-	.handler	= ps4_handle_edge_irq,
+	.handler	= handle_edge_irq,
 	.handler_name	= "edge"
 };
 
-static void apcie_set_desc(msi_alloc_info_t *arg, struct msi_desc *desc)
+void apcie_set_desc(msi_alloc_info_t *arg, struct msi_desc *desc)
 {
 	//IRQs "come from" function 4 as far as the IOMMU/system see
 	unsigned int sc_devfn;
 	struct pci_dev *sc_dev;
 
+	arg->desc = desc;
 	struct pci_dev *dev = msi_desc_to_pci_dev(desc);
 	arg->type = X86_IRQ_ALLOC_TYPE_PCI_MSI;
 
 	sc_devfn = (dev->devfn & ~7) | AEOLIA_FUNC_ID_PCIE;
 	sc_dev = pci_get_slot(dev->bus, sc_devfn);
 	pci_dev_put(sc_dev);
-	//Our hwirq number is (slot << 8) | (func << 5) plus subfunction.
-	// Subfunction is usually 0 and implicitly increments per hwirq,
-	//but can also be 0xff to indicate that this is a shared IRQ.
-	arg->hwirq =
-		(PCI_SLOT(dev->devfn) << 8) | (PCI_FUNC(dev->devfn) << 5);
+
+	if(sc_dev->device == PCI_DEVICE_ID_SONY_BAIKAL_PCIE) {
+		//Our hwirq number is (slot << 8) | (func << 5) plus subfunction.
+		// Subfunction is usually 0 and implicitly increments per hwirq,
+		//but can also be 0xff to indicate that this is a shared IRQ.'
+		arg->hwirq = (PCI_SLOT(dev->devfn) << 8) |
+			     (PCI_FUNC(dev->devfn) << 5);
+	} else {
+		//Our hwirq number is (slot << 8) plus subfunction.
+		// Subfunction is usually 0 and implicitly increments per hwirq,
+		//but can also be 0xff to indicate that this is a shared IRQ.'
+		arg->hwirq = (PCI_SLOT(dev->devfn) << 8);
+	}
 
 #ifndef QEMU_HACK_NO_IOMMU
 	arg->flags = X86_IRQ_ALLOC_CONTIGUOUS_VECTORS;
@@ -479,8 +477,7 @@ static void apcie_set_desc(msi_alloc_info_t *arg, struct msi_desc *desc)
 #endif
 }
 
-
-static struct irq_domain *apcie_create_irq_domain(struct apcie_dev *sc)
+static struct irq_domain *apcie_create_irq_domain(struct apcie_dev *sc, struct pci_dev *pdev)
 {
 	struct irq_domain *domain, *parent;
 	struct fwnode_handle *fn;
@@ -491,6 +488,11 @@ static struct irq_domain *apcie_create_irq_domain(struct apcie_dev *sc)
 		return NULL;
 
 	apcie_msi_domain_info.chip_data = (void *)sc;
+
+	if(sc->is_baikal) {
+		apcie_msi_domain_info.handler = baikal_handle_edge_irq;
+		apcie_msi_domain_info.chip = &baikal_pcie_msi_controller;
+	}
 
 	fn = irq_domain_alloc_named_id_fwnode(apcie_msi_controller.name, pci_dev_id(sc->pdev));
 	if (!fn) {
@@ -517,7 +519,9 @@ static struct irq_domain *apcie_create_irq_domain(struct apcie_dev *sc)
 	}
 
 	domain = msi_create_irq_domain(fn, &apcie_msi_domain_info, parent);
-	if (!domain) {
+	if (domain) {
+		dev_set_msi_domain(&pdev->dev, domain);
+	} else {
 		irq_domain_free_fwnode(fn);
 		pr_warn("Failed to initialize Aeolia-MSI irqdomain.\n");
 	}
@@ -525,7 +529,6 @@ static struct irq_domain *apcie_create_irq_domain(struct apcie_dev *sc)
 	return domain;
 }
 
-// TODO (ps4patches): Does this work?
 static void create_irq_domains(struct apcie_dev *sc) {
 	int func;
 	for (func = 0; func < AEOLIA_NUM_FUNCS; ++func) {
@@ -537,7 +540,7 @@ static void create_irq_domains(struct apcie_dev *sc) {
 		struct pci_dev * pdev = pci_get_slot(sc_dev->bus, devfn);
 
 		if (pdev) {
-			struct irq_domain * domain = apcie_create_irq_domain(sc);
+			struct irq_domain * domain = apcie_create_irq_domain(sc, pdev);
 			if (func == AEOLIA_FUNC_ID_PCIE) sc->irqdomain = domain;
 			pci_dev_put(pdev);
 		} else
@@ -667,14 +670,20 @@ static int apcie_glue_init(struct apcie_dev *sc)
 		return -EBUSY;
 	}
 
-	// Apparently baikal doesn't do this
-	if(!sc->is_baikal)
+	if(!sc->is_baikal) {
+		// Apparently baikal doesn't do this
 		glue_set_region(sc, AEOLIA_FUNC_ID_PCIE, 2, 0xbf018000, 0x7fff);
 
-	sc_info("Aeolia chip revision: %08x:%08x:%08x\n",
-		ioread32(sc->glue_bar_to_use + APCIE_REG_CHIPID_0),
-		ioread32(sc->glue_bar_to_use + APCIE_REG_CHIPID_1),
-		ioread32(sc->glue_bar_to_use + APCIE_REG_CHIPREV));
+		sc_info("Aeolia chip revision: %08x:%08x:%08x\n",
+			ioread32(sc->bar2 + APCIE_REG_CHIPID_0),
+			ioread32(sc->bar2 + APCIE_REG_CHIPID_1),
+			ioread32(sc->bar2 + APCIE_REG_CHIPREV));
+	} else {
+		sc_info("Baikal chip revision: %08x:%08x:%08x\n",
+			ioread32(sc->bar4 + APCIE_REG_CHIPID_0),
+			ioread32(sc->bar4 + APCIE_REG_CHIPID_1),
+			ioread32(sc->bar4 + APCIE_REG_CHIPREV));
+	}
 
 	/* Mask all MSIs first, to avoid spurious IRQs */
 	for (i = 0; i < AEOLIA_NUM_FUNCS; i++) {
@@ -709,7 +718,11 @@ static int apcie_glue_init(struct apcie_dev *sc)
 		glue_set_region(sc, AEOLIA_FUNC_ID_XHCI, 5, 0, 0);
 	}
 
-	create_irq_domains(sc);
+	if(sc->is_baikal) {
+		create_irq_domains(sc);
+	} else {
+		sc->irqdomain = apcie_create_irq_domain(sc, sc->pdev);
+	}
 	if (!sc->irqdomain) {
 		sc_err("Failed to create IRQ domain");
 		apcie_glue_remove(sc);
@@ -822,6 +835,9 @@ static int apcie_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 	if(sc->is_baikal) {
 		sc->glue_bar_to_use = sc->bar2;
 		sc->glue_bar_to_use_num = 2;
+	} else {
+		sc->glue_bar_to_use = sc->bar4;
+		sc->glue_bar_to_use_num = 4;
 	}
 
 	if ((ret = apcie_glue_init(sc)) < 0)
