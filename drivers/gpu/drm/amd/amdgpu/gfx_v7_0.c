@@ -2992,7 +2992,7 @@ static int gfx_v7_0_ring_test_ib(struct amdgpu_ring *ring, long timeout)
 	if (tmp == 0xDEADBEEF)
 		r = 0;
 	else
-		r = -EINVAL;
+		//r = -EINVAL;
 
 err2:
 	amdgpu_ib_free(adev, &ib, NULL);
