@@ -18,9 +18,6 @@ enum aeolia_func_id {
 	AEOLIA_NUM_FUNCS
 };
 
-/* MSI registers for up to 31, but only 23 known. */
-#define APCIE_NUM_SUBFUNC		23
-
 /* Sub-functions, aka MSI vectors */
 enum apcie_subfunc {
 	APCIE_SUBFUNC_GLUE	= 0,

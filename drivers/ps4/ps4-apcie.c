@@ -457,14 +457,13 @@ void apcie_set_desc(msi_alloc_info_t *arg, struct msi_desc *desc)
 	//IRQs "come from" function 4 as far as the IOMMU/system see
 	unsigned int sc_devfn;
 	struct pci_dev *sc_dev;
+	struct pci_dev *dev = msi_desc_to_pci_dev(desc);
 
 	arg->desc = desc;
-	struct pci_dev *dev = msi_desc_to_pci_dev(desc);
 	arg->type = X86_IRQ_ALLOC_TYPE_PCI_MSI;
 
 	sc_devfn = (dev->devfn & ~7) | AEOLIA_FUNC_ID_PCIE;
 	sc_dev = pci_get_slot(dev->bus, sc_devfn);
-	pci_dev_put(sc_dev);
 
 	if(sc_dev->device == PCI_DEVICE_ID_SONY_BAIKAL_PCIE) {
 		//Our hwirq number is (slot << 8) | (func << 5) plus subfunction.
@@ -476,7 +475,7 @@ void apcie_set_desc(msi_alloc_info_t *arg, struct msi_desc *desc)
 		//Our hwirq number is (slot << 8) plus subfunction.
 		// Subfunction is usually 0 and implicitly increments per hwirq,
 		//but can also be 0xff to indicate that this is a shared IRQ.'
-		arg->hwirq = (PCI_SLOT(dev->devfn) << 8);
+		arg->hwirq = (PCI_FUNC(dev->devfn) << 8);
 	}
 
 #ifndef QEMU_HACK_NO_IOMMU
@@ -485,6 +484,9 @@ void apcie_set_desc(msi_alloc_info_t *arg, struct msi_desc *desc)
 		arg->hwirq |= 0x1F; // Shared IRQ for all subfunctions
 	}
 #endif
+
+	pr_info("set_desc hwirq: %x\n", arg->hwirq);
+	pci_dev_put(sc_dev);
 }
 
 static struct irq_domain *apcie_create_irq_domain(struct apcie_dev *sc, struct pci_dev *pdev)
@@ -504,25 +506,25 @@ static struct irq_domain *apcie_create_irq_domain(struct apcie_dev *sc, struct p
 		apcie_msi_domain_info.chip = &baikal_pcie_msi_controller;
 	}
 
-	fn = irq_domain_alloc_named_id_fwnode(apcie_msi_controller.name, pci_dev_id(sc->pdev));
+	fn = irq_domain_alloc_named_id_fwnode("Aeolia-MSI", pci_dev_id(pdev));
 	if (!fn) {
 		return NULL;
 	}
 
-	sc_dbg("devid = %d\n", pci_dev_id(sc->pdev));
+	sc_dbg("devid = %d\n", pci_dev_id(pdev));
 
 	fwspec.fwnode = fn;
 	fwspec.param_count = 1;
 
 	// It should be correct to put the pci device id in here
-	fwspec.param[0] = pci_dev_id(sc->pdev);
+	fwspec.param[0] = pci_dev_id(pdev);
 
 	parent = irq_find_matching_fwspec(&fwspec, DOMAIN_BUS_ANY);
 	if (!parent) {
 		sc_dbg("no parent \n");
 		parent = x86_vector_domain;
 	} else if (parent == x86_vector_domain) {
-		sc_dbg("no parent \n");
+		sc_dbg("x86_vector_domain parent \n");
 	} else {
 		apcie_msi_domain_info.flags |= MSI_FLAG_MULTI_PCI_MSI;
 		apcie_msi_controller.name = "IR-Aeolia-MSI";
@@ -541,6 +543,7 @@ static struct irq_domain *apcie_create_irq_domain(struct apcie_dev *sc, struct p
 
 static void create_irq_domains(struct apcie_dev *sc) {
 	int func;
+	struct irq_domain * domain;
 	for (func = 0; func < AEOLIA_NUM_FUNCS; ++func) {
 		unsigned int devfn;
 		struct pci_dev *sc_dev;
@@ -550,7 +553,7 @@ static void create_irq_domains(struct apcie_dev *sc) {
 		struct pci_dev * pdev = pci_get_slot(sc_dev->bus, devfn);
 
 		if (pdev) {
-			struct irq_domain * domain = apcie_create_irq_domain(sc, pdev);
+			domain = apcie_create_irq_domain(sc, pdev);
 			if (func == AEOLIA_FUNC_ID_PCIE) sc->irqdomain = domain;
 			pci_dev_put(pdev);
 		} else
@@ -575,6 +578,7 @@ int apcie_assign_irqs(struct pci_dev *dev, int nvec)
 	struct pci_dev *sc_dev;
 	struct apcie_dev *sc;
 	struct irq_alloc_info info;
+	struct msi_desc *desc;
 
 	sc_devfn = (dev->devfn & ~7) | AEOLIA_FUNC_ID_PCIE;
 	sc_dev = pci_get_slot(dev->bus, sc_devfn);
@@ -591,29 +595,17 @@ int apcie_assign_irqs(struct pci_dev *dev, int nvec)
 		goto fail;
 	}
 
-	init_irq_alloc_info(&info, NULL);
-	info.type = X86_IRQ_ALLOC_TYPE_PCI_MSI;
-	/* IRQs "come from" function 4 as far as the IOMMU/system see */
-	//info.msi_dev = sc->pdev;
-	info.devid = pci_dev_id(sc->pdev);
+	if((!dev->msi_enabled) && (sc->is_baikal)) {
+		ret = pci_alloc_irq_vectors(dev, 1, nvec, PCI_IRQ_MSI);
+	} else if ((!dev->msi_enabled) && (!sc->is_baikal)) {
+		init_irq_alloc_info(&info, NULL);
+		info.type = X86_IRQ_ALLOC_TYPE_PCI_MSI;
+		/* IRQs "come from" function 4 as far as the IOMMU/system see */
+		//info.msi_dev = sc->pdev;
+		info.devid = pci_dev_id(sc->pdev);
 
-	struct msi_desc *desc;
-
-	/* Our hwirq number is function << 8 plus subfunction.
-	 * Subfunction is usually 0 and implicitly increments per hwirq,
-	 * but can also be 0xff to indicate that this is a shared IRQ. */
-	info.hwirq = PCI_FUNC(dev->devfn) << 8;
-
-#ifndef QEMU_HACK_NO_IOMMU
-	info.flags = X86_IRQ_ALLOC_CONTIGUOUS_VECTORS;
-	if (!(apcie_msi_domain_info.flags & MSI_FLAG_MULTI_PCI_MSI)) {
-		nvec = 1;
-		info.hwirq |= 0x1f; /* Shared IRQ for all subfunctions */
-	}
-#endif
-
-	if(!dev->msi_enabled) {
-		desc = alloc_msi_entry(&sc->pdev->dev, nvec, NULL);
+		dev_set_msi_domain(&dev->dev, sc->irqdomain);
+		desc = alloc_msi_entry(&dev->dev, nvec, NULL);
 
 		info.desc = desc;
 		info.data = sc;
@@ -633,12 +625,6 @@ int apcie_assign_irqs(struct pci_dev *dev, int nvec)
 	} else {
 		ret = nvec;
 	}
-
-	// TODO (ps4patches): baikal patches had this, not sure if that works anymore
-	//	if (dev->msi_enabled)
-	//		ret = nvec;
-	//	else
-	//		ret = pci_alloc_irq_vectors(dev, 1, nvec, PCI_IRQ_MSI);
 
 fail:
 	dev_info(&dev->dev, "apcie_assign_irqs returning %d\n", ret);
@@ -695,17 +681,17 @@ static int apcie_glue_init(struct apcie_dev *sc)
 			ioread32(sc->bar4 + APCIE_REG_CHIPREV));
 	}
 
-	/* Mask all MSIs first, to avoid spurious IRQs */
-	for (i = 0; i < AEOLIA_NUM_FUNCS; i++) {
-		glue_write32(sc, APCIE_REG_MSI_MASK(i), 0);
-		glue_write32(sc, APCIE_REG_MSI_ADDR(i), 0);
-		glue_write32(sc, APCIE_REG_MSI_DATA_HI(i), 0);
-	}
-
-	for (i = 0; i < 0xfc; i += 4)
-		glue_write32(sc, APCIE_REG_MSI_DATA_LO(i), 0);
-
 	if(!sc->is_baikal) {
+		/* Mask all MSIs first, to avoid spurious IRQs */
+		for (i = 0; i < AEOLIA_NUM_FUNCS; i++) {
+			glue_write32(sc, APCIE_REG_MSI_MASK(i), 0);
+			glue_write32(sc, APCIE_REG_MSI_ADDR(i), 0);
+			glue_write32(sc, APCIE_REG_MSI_DATA_HI(i), 0);
+		}
+
+		for (i = 0; i < 0xfc; i += 4)
+			glue_write32(sc, APCIE_REG_MSI_DATA_LO(i), 0);
+
 		glue_set_region(sc, AEOLIA_FUNC_ID_GBE, 0, 0xbfa00000, 0x3fff);
 		glue_set_region(sc, AEOLIA_FUNC_ID_AHCI, 5, 0xbfa04000, 0xfff);
 		glue_set_region(sc, AEOLIA_FUNC_ID_SDHCI, 0, 0xbfa80000, 0xfff);
@@ -738,10 +724,13 @@ static int apcie_glue_init(struct apcie_dev *sc)
 		apcie_glue_remove(sc);
 		return -EIO;
 	}
-	sc->nvec = apcie_assign_irqs(sc->pdev, APCIE_NUM_SUBFUNC);
 
-	// TODO (ps4patches): can't this be used for aeolia?
-	//sc->nvec = pci_alloc_irq_vectors(sc->pdev, BPCIE_SUBFUNC_ICC+1, BPCIE_NUM_SUBFUNCS, PCI_IRQ_MSI);
+	if(sc->is_baikal)
+		sc->nvec = pci_alloc_irq_vectors(sc->pdev, APCIE_SUBFUNC_ICC+1, APCIE_NUM_SUBFUNCS, PCI_IRQ_MSI);
+	else
+	{
+		sc->nvec = apcie_assign_irqs(sc->pdev, APCIE_NUM_SUBFUNCS);
+	}
 
 	if (sc->nvec <= 0) {
 		sc_err("Failed to assign IRQs");
