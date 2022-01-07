@@ -351,7 +351,7 @@ static void apcie_irq_msi_compose_msg(struct irq_data *data,
 	// I know this is absolute horseshit, but it matches a known working kernel
 	msg->data = data->irq - 1;
 
-	pr_err("apcie_irq_msi_compose_msg\n");
+	pr_info("apcie_irq_msi_compose_msg %x\n", cfg->vector);
 }
 
 
@@ -618,7 +618,7 @@ int apcie_assign_irqs(struct pci_dev *dev, int nvec)
 		#endif
 
 		dev_set_msi_domain(&dev->dev, sc->irqdomain);
-		desc = alloc_msi_entry(&dev->dev, nvec, NULL);
+		desc = alloc_msi_entry(&sc->pdev->dev, nvec, NULL);
 
 		info.desc = desc;
 		info.data = sc;
