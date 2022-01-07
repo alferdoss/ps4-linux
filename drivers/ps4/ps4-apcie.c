@@ -604,6 +604,19 @@ int apcie_assign_irqs(struct pci_dev *dev, int nvec)
 		//info.msi_dev = sc->pdev;
 		info.devid = pci_dev_id(sc->pdev);
 
+		/* Our hwirq number is function << 8 plus subfunction.
+	 	* Subfunction is usually 0 and implicitly increments per hwirq,
+	 	* but can also be 0xff to indicate that this is a shared IRQ. */
+		info.hwirq = PCI_FUNC(dev->devfn) << 8;
+
+		#ifndef QEMU_HACK_NO_IOMMU
+		info.flags = X86_IRQ_ALLOC_CONTIGUOUS_VECTORS;
+		if (!(apcie_msi_domain_info.flags & MSI_FLAG_MULTI_PCI_MSI)) {
+			nvec = 1;
+			info.hwirq |= 0x1f; /* Shared IRQ for all subfunctions */
+		}
+		#endif
+
 		dev_set_msi_domain(&dev->dev, sc->irqdomain);
 		desc = alloc_msi_entry(&dev->dev, nvec, NULL);
 
