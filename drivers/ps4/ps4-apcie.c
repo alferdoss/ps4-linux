@@ -245,7 +245,12 @@ static void apcie_msi_unmask(struct irq_data *data)
 	u32 func = data->hwirq >> 8;
 	struct msi_desc *desc = irq_data_get_msi_desc(data);
 
-	desc->msi_mask |= data->mask;
+	if(desc) {
+		desc->msi_mask |= data->mask;
+	} else {
+		pr_debug("no msi_desc at apcie_msi_unmask\n");
+	}
+
 	glue_set_mask(sc, APCIE_REG_MSI_MASK(func), data->mask);
 }
 
@@ -256,7 +261,12 @@ static void apcie_msi_mask(struct irq_data *data)
 
 	struct msi_desc *desc = irq_data_get_msi_desc(data);
 
-	desc->msi_mask &= ~data->mask;
+	if (desc) {
+		desc->msi_mask &= ~data->mask;
+	} else {
+		pr_debug("no msi_desc at apcie_msi_mask\n");
+	}
+
 	glue_clear_mask(sc, APCIE_REG_MSI_MASK(func), data->mask);
 }
 
