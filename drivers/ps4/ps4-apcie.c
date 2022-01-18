@@ -661,12 +661,23 @@ static int apcie_glue_init(struct apcie_dev *sc)
 
 	sc_info("apcie glue probe\n");
 
-	if (!request_mem_region(pci_resource_start(sc->pdev, sc->glue_bar_to_use_num) +
-				APCIE_RGN_PCIE_BASE, APCIE_RGN_PCIE_SIZE,
-				"apcie.glue")) {
-		sc_err("Failed to request pcie region\n");
-		return -EBUSY;
+	if(!sc->is_baikal) {
+		if (!request_mem_region(
+			    pci_resource_start(sc->pdev,
+					       sc->glue_bar_to_use_num) +
+				    APCIE_RGN_PCIE_BASE,
+			    APCIE_RGN_PCIE_SIZE, "apcie.glue")) {
+			sc_err("Failed to request pcie region\n");
+			return -EBUSY;
+		}
+	}
+	else {
+		if (!request_mem_region(pci_resource_start(sc->pdev, 2), pci_resource_len(sc->pdev, 2),
+					"bpcie.glue")) {
+			sc_err("Failed to request pcie region\n");
+			return -EBUSY;
 
+		}
 	}
 
 	// Use the opposite number of the bar to use
