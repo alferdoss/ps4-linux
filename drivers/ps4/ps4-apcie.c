@@ -530,7 +530,7 @@ static struct irq_domain *apcie_create_irq_domain(struct apcie_dev *sc, struct p
 		apcie_msi_controller.name = "IR-Aeolia-MSI";
 	}
 
-	domain = msi_create_irq_domain(fn, &apcie_msi_domain_info, parent);
+	domain = pci_msi_create_irq_domain(fn, &apcie_msi_domain_info, parent);
 	if (domain) {
 		dev_set_msi_domain(&pdev->dev, domain);
 	} else {
