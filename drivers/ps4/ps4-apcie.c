@@ -354,31 +354,6 @@ static void apcie_irq_msi_compose_msg(struct irq_data *data,
 	pr_info("apcie_irq_msi_compose_msg %x\n", cfg->vector);
 }
 
-
-#define MSI_ADDR_EXT_DEST_ID(dest)	((dest) & 0xffffff00)
-#define MSI_ADDR_DEST_ID_SHIFT		12
-#define	 MSI_ADDR_DEST_ID_MASK		0x00ffff0
-#define  MSI_ADDR_DEST_ID(dest)		(((dest) << MSI_ADDR_DEST_ID_SHIFT) & \
-					 MSI_ADDR_DEST_ID_MASK)
-
-// TODO (ps4patches): If aeolia/belize is done correctly this should be fine for
-// that as well
-static void baikal_irq_msi_compose_msg(struct irq_data *data, struct msi_msg *msg)
-{
-	struct irq_cfg *cfg = irqd_cfg(data);
-
-	msg->address_hi = X86_MSI_BASE_ADDRESS_HIGH;
-
-	msg->address_lo =
-		0xfee00000 |
-		0 |
-		MSI_ADDR_DEST_ID(cfg->dest_apicid);
-
-	msg->data =
-		(1 << 14) |
-		MSI_DATA_VECTOR(cfg->vector);
-}
-
 static struct irq_chip apcie_msi_controller = {
 	.name = "Aeolia-MSI",
 	.irq_unmask = apcie_msi_unmask,
@@ -399,7 +374,7 @@ static struct irq_chip baikal_pcie_msi_controller = {
 	.irq_ack = irq_chip_ack_parent,
 	.irq_set_affinity = msi_domain_set_affinity,
 	.irq_retrigger = irq_chip_retrigger_hierarchy,
-	.irq_compose_msi_msg = apcie_irq_msi_compose_msg,
+	.irq_compose_msi_msg = apcie_msi_write_msg,
 	.irq_write_msi_msg = baikal_msi_write_msg,
 	.flags = IRQCHIP_SKIP_SET_WAKE | IRQCHIP_AFFINITY_PRE_STARTUP,
 };
