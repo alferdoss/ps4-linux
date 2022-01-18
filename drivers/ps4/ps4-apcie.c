@@ -374,7 +374,7 @@ static struct irq_chip baikal_pcie_msi_controller = {
 	.irq_ack = irq_chip_ack_parent,
 	.irq_set_affinity = msi_domain_set_affinity,
 	.irq_retrigger = irq_chip_retrigger_hierarchy,
-	.irq_compose_msi_msg = apcie_msi_write_msg,
+	.irq_compose_msi_msg = apcie_irq_msi_compose_msg,
 	.irq_write_msi_msg = baikal_msi_write_msg,
 	.flags = IRQCHIP_SKIP_SET_WAKE | IRQCHIP_AFFINITY_PRE_STARTUP,
 };
