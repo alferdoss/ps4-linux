@@ -399,7 +399,7 @@ static struct irq_chip baikal_pcie_msi_controller = {
 	.irq_ack = irq_chip_ack_parent,
 	.irq_set_affinity = msi_domain_set_affinity,
 	.irq_retrigger = irq_chip_retrigger_hierarchy,
-	.irq_compose_msi_msg = baikal_irq_msi_compose_msg,
+	.irq_compose_msi_msg = apcie_irq_msi_compose_msg,
 	.irq_write_msi_msg = baikal_msi_write_msg,
 	.flags = IRQCHIP_SKIP_SET_WAKE | IRQCHIP_AFFINITY_PRE_STARTUP,
 };
@@ -685,8 +685,13 @@ static int apcie_glue_init(struct apcie_dev *sc)
 				APCIE_RGN_CHIPID_BASE, APCIE_RGN_CHIPID_SIZE,
 				"apcie.chipid")) {
 		sc_err("Failed to request chipid region\n");
-		release_mem_region(pci_resource_start(sc->pdev, sc->glue_bar_to_use_num) +
-				   APCIE_RGN_PCIE_BASE, APCIE_RGN_PCIE_SIZE);
+
+		if(!sc->is_baikal)
+			release_mem_region(pci_resource_start(sc->pdev, sc->glue_bar_to_use_num) +
+				   	APCIE_RGN_PCIE_BASE, APCIE_RGN_PCIE_SIZE);
+		else
+			release_mem_region(pci_resource_start(sc->pdev, 2), pci_resource_len(sc->pdev, 2));
+
 		return -EBUSY;
 	}
 
