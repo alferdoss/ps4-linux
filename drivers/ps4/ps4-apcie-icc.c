@@ -334,13 +334,13 @@ static void resetUsbPort(void)
 	}
 
 	//Turn OFF Usb
-	ret = apcie_icc_cmd(5, 0x10, &off, sizeof(off), resp, 20);
-	printk("Turn OFF USB: ret=%d, reply %02x %02x %02x %02x", ret, resp[0], resp[1], resp[2], resp[3]);
-	if(ret < 0)
-	{
-		printk("Turn off USB failed!");
-		return;
-	}
+//	ret = apcie_icc_cmd(5, 0x10, &off, sizeof(off), resp, 20);
+//	printk("Turn OFF USB: ret=%d, reply %02x %02x %02x %02x", ret, resp[0], resp[1], resp[2], resp[3]);
+//	if(ret < 0)
+//	{
+//		printk("Turn off USB failed!");
+//		return;
+//	}
 
 	//Turn ON Usb
 	ret = apcie_icc_cmd(5, 0x10, &on, sizeof(on), resp, 20);
