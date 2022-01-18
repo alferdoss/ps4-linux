@@ -64,8 +64,11 @@ enum bpcie_subfunc {
 #define APCIE_NR_UARTS 2
 
 /* Relative to BAR2 */
-#define APCIE_RGN_CHIPID_BASE		0x1000
-#define APCIE_RGN_CHIPID_SIZE		0x1000
+#define APCIE_RGN_CHIPID_BASE		(sc->is_baikal ?  0x4000 : \
+						          0x1000)
+
+#define APCIE_RGN_CHIPID_SIZE		(sc->is_baikal ?  0x9000 : \
+						     	  0x1000)
 
 #define APCIE_REG_CHIPID_0		0x1104
 #define APCIE_REG_CHIPID_1		0x1108
@@ -74,9 +77,6 @@ enum bpcie_subfunc {
 #define BPCIE_HPET_BASE         0x109000
 #define BPCIE_HPET_SIZE         0x400
 
-#define BPCIE_RGN_ICC_BASE		(0x108000 - 0x800)
-#define BPCIE_RGN_ICC_SIZE		0x1000 //not confirmed
-
 #define BPCIE_ACK_WRITE 		0x110084
 #define BPCIE_ACK_READ  		0x110088
 
@@ -84,14 +84,11 @@ enum bpcie_subfunc {
 #define APCIE_RGN_RTC_SIZE		0x1000
 
 /* Relative to BAR4 */
-#define BPCIE_RGN_CHIPID_BASE		0x4000 //not confirmed
-#define BPCIE_RGN_CHIPID_SIZE		0x9000 //not confirmed
-
 #define BPCIE_REG_CHIPID_0		0xC020
 #define BPCIE_REG_CHIPID_1		0xC024
 #define BPCIE_REG_CHIPREV		0x4084
 
-#define APCIE_RGN_UART_BASE		(sc->is_baikal ? 0x140000 : 0x10E000)
+#define APCIE_RGN_UART_BASE		(sc->is_baikal ? 0x10E000 : 0x140000)
 #define APCIE_RGN_UART_SIZE		0x1000
 
 #define APCIE_RGN_PCIE_BASE		0x1c8000

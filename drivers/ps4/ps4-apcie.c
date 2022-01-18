@@ -689,9 +689,9 @@ static int apcie_glue_init(struct apcie_dev *sc)
 			ioread32(sc->bar2 + APCIE_REG_CHIPREV));
 	} else {
 		sc_info("Baikal chip revision: %08x:%08x:%08x\n",
-			ioread32(sc->bar4 + APCIE_REG_CHIPID_0),
-			ioread32(sc->bar4 + APCIE_REG_CHIPID_1),
-			ioread32(sc->bar4 + APCIE_REG_CHIPREV));
+			ioread32(sc->bar4 + BPCIE_REG_CHIPID_0),
+			ioread32(sc->bar4 + BPCIE_REG_CHIPID_1),
+			ioread32(sc->bar4 + BPCIE_REG_CHIPREV));
 	}
 
 	if(!sc->is_baikal) {
@@ -832,9 +832,9 @@ static int apcie_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 	pci_set_drvdata(dev, sc);
 	// eMMC ... unused?
 	sc->bar0 = pci_ioremap_bar(dev, 0);
-	// pervasive 0
+	// pervasive 0 - misc peripherals (baikal)
 	sc->bar2 = pci_ioremap_bar(dev, 2);
-	// pervasive 1 - misc peripherals
+	// pervasive 1 - misc peripherals (aeolia/belize)
 	sc->bar4 = pci_ioremap_bar(dev, 4);
 
 	if (!sc->bar0 || !sc->bar2 || !sc->bar4) {
