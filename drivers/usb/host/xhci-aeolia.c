@@ -461,8 +461,8 @@ static void xhci_aeolia_remove(struct pci_dev *dev)
 		if(dev->device != PCI_DEVICE_ID_SONY_AEOLIA_XHCI) {
 			if(idx != 1)
 				xhci_aeolia_remove_one(dev, idx);
-			else if (dev->device != PCI_DEVICE_ID_SONY_AEOLIA_XHCI)
-				ahci_remove_one(dev);
+			else
+				ahci_remove_one(dev);				
 		}
 		else
 			xhci_aeolia_remove_one(dev, idx);
@@ -480,7 +480,7 @@ static void xhci_aeolia_remove(struct pci_dev *dev)
 static void xhci_hcd_pci_shutdown(struct pci_dev *dev){
 
 	// We want to use the normal shutdown if we are aeolia
-	if (dev->device != PCI_DEVICE_ID_SONY_AEOLIA_XHCI)
+	if (dev->device == PCI_DEVICE_ID_SONY_AEOLIA_XHCI)
 	{
 		usb_hcd_pci_shutdown(dev);
 		return;
