@@ -18,11 +18,6 @@
 
 #include "aeolia.h"
 
-
-#define     MSI_DATA_VECTOR_SHIFT	0
-#define	    MSI_DATA_VECTOR(v)		(((u8)v) << MSI_DATA_VECTOR_SHIFT)
-#define     MSI_DATA_VECTOR_MASK	0xffffff00
-
 /* #define QEMU_HACK_NO_IOMMU */
 
 void apcie_set_desc(msi_alloc_info_t *arg, struct msi_desc *desc);
@@ -117,7 +112,7 @@ static void baikal_msi_write_msg(struct irq_data *data, struct msi_msg *msg)
 		return;
 	}
 
-	dev_dbg(data->common->msi_desc->dev, "baikal_msi_write_msg(%08x, %08x) mask=0x%x irq=%d hwirq=0x%lx %p\n",
+	dev_info(data->common->msi_desc->dev, "baikal_msi_write_msg(%08x, %08x) mask=0x%x irq=%d hwirq=0x%lx %p\n",
 		msg->address_lo, msg->data, data->mask, data->irq, data->hwirq, sc);
 
 
@@ -186,7 +181,7 @@ static void baikal_pcie_msi_unmask(struct irq_data *data)
 		     : "eax", "ebx", "edx");
 	msi_mask = result;
 
-	dev_dbg(data->common->msi_desc->dev, "bpcie_msi_unmask(msi_mask=0x%X, msi_allocated=0x%X)\n", msi_mask, msi_allocated);
+	dev_info(data->common->msi_desc->dev, "bpcie_msi_unmask(msi_mask=0x%X, msi_allocated=0x%X)\n", msi_mask, msi_allocated);
 	//msi_mask = 0;
 	pci_write_config_dword(pdev, desc->mask_pos,
 			       msi_mask);
@@ -229,7 +224,7 @@ static void baikal_pcie_msi_mask(struct irq_data *data)
 		msi_mask = result;
 	}
 
-	dev_dbg(data->common->msi_desc->dev, "bpcie_msi_mask(msi_mask=0x%X, msi_allocated=0x%X)\n", msi_mask, msi_allocated);
+	dev_info(data->common->msi_desc->dev, "bpcie_msi_mask(msi_mask=0x%X, msi_allocated=0x%X)\n", msi_mask, msi_allocated);
 	//msi_mask = 0;
 	pci_write_config_dword(pdev, desc->mask_pos,
 			       msi_mask);
@@ -332,26 +327,48 @@ static void baikal_handle_edge_irq(struct irq_desc *desc)
 							     initial_hwirq + i);
 			struct irq_desc *new_desc = irq_to_desc(virq);
 			if (new_desc) {
-				//dev_dbg(new_desc->irq_common_data.msi_desc->dev, "handle_edge_irq_int(new hwirq=0x%X, irq=0x%X)\n", new_desc->irq_data.hwirq, new_desc->irq_data.irq);
+				//dev_info(new_desc->irq_common_data.msi_desc->dev, "handle_edge_irq_int(new hwirq=0x%X, irq=0x%X)\n", new_desc->irq_data.hwirq, new_desc->irq_data.irq);
 				handle_edge_irq(new_desc);
 			}
 		}
 	}
 }
 
+int apcie_is_compatible_device(struct pci_dev *dev)
+{
+	if (!dev || dev->vendor != PCI_VENDOR_ID_SONY) {
+		return 0;
+	}
+	return (dev->device == PCI_DEVICE_ID_SONY_AEOLIA_PCIE ||
+		dev->device == PCI_DEVICE_ID_SONY_BELIZE_PCIE ||
+		dev->device == PCI_DEVICE_ID_SONY_BAIKAL_PCIE);
+}
+
 static void apcie_irq_msi_compose_msg(struct irq_data *data,
 				       struct msi_msg *msg)
 {
 	struct irq_cfg *cfg = irqd_cfg(data);
+	struct apcie_dev *sc = data->chip_data;
+	int i;
 
 	memset(msg, 0, sizeof(*msg));
 	msg->address_hi = X86_MSI_BASE_ADDRESS_HIGH;
 	msg->address_lo = 0xfee00000;// Just do it like this for now
 
-	// I know this is absolute horseshit, but it matches a known working kernel
-	msg->data = data->irq - 1;
 
-	pr_info("apcie_irq_msi_compose_msg %x\n", cfg->vector);
+	if (sc) {
+		for (i = 0; i < 100; i++) {
+			if (sc->irq_map[i] == data->irq) {
+				msg->data = i;
+				break;
+			}
+		}
+	} else {
+		pr_info("apcie_irq_msi_compose_msg SC null\n");
+		msg->data = data->irq - 1;
+	}
+
+	pr_info("apcie_irq_msi_compose_msg %x %x\n", msg->data, cfg->vector);
 }
 
 static struct irq_chip apcie_msi_controller = {
@@ -389,7 +406,9 @@ static int apcie_msi_init(struct irq_domain *domain,
 			 struct msi_domain_info *info, unsigned int virq,
 			 irq_hw_number_t hwirq, msi_alloc_info_t *arg)
 {
+	int i;
 	struct irq_data *data;
+	struct apcie_dev *sc = info->chip_data;
 	pr_err("apcie_msi_init(%p, %p, %d, 0x%lx, %p)\n", domain, info, virq, hwirq, arg);
 
 	data = irq_domain_get_irq_data(domain, virq);
@@ -403,13 +422,33 @@ static int apcie_msi_init(struct irq_domain *domain,
 
 		apcie_msi_calc_mask(data);
 	}
+
+	for(i = 0; i < 100; i++) {
+		if(sc->irq_map[i] == -1) {
+			sc->irq_map[i] = (int8_t) virq;
+			break;
+		}
+	}
+
 	return 0;
 }
 
 static void apcie_msi_free(struct irq_domain *domain,
 			  struct msi_domain_info *info, unsigned int virq)
 {
+	int i;
+
+	struct apcie_dev *sc = info->chip_data;
+
 	pr_err("apcie_msi_free(%d)\n", virq);
+
+	// TODO (ps4patches): not sure what's supposed to happen here
+	for(i = 0; i < 100; i++) {
+		if(sc->irq_map[i] == virq) {
+			sc->irq_map[i] = -1;
+			break;
+		}
+	}
 }
 
 static struct msi_domain_ops apcie_msi_domain_ops = {
@@ -520,13 +559,14 @@ static struct irq_domain *apcie_create_irq_domain(struct apcie_dev *sc, struct p
 
 // This should assign the PCIE irq domain to every pcie device under the
 // AEOLIA/BAIKAL/BELIZE chip
-static void assignDomains(struct apcie_dev *sc) {
+static void assignDomains(struct apcie_dev *sc)
+{
 	int func;
-	struct irq_domain* domain;
-	struct pci_dev* pdev;
+	struct irq_domain *domain;
+	struct pci_dev *pdev;
 
 	unsigned int devfn;
-	struct pci_dev* sc_dev;
+	struct pci_dev *sc_dev;
 
 	// First make a PCIE domain so we can assign the rest
 	sc_dev = sc->pdev;
@@ -541,7 +581,6 @@ static void assignDomains(struct apcie_dev *sc) {
 		sc_err("cannot create pcie irqdomain!");
 		return;
 	}
-
 
 	// Now we can use the PCIE domain everywhere else
 	for (func = 0; func < AEOLIA_NUM_FUNCS; ++func) {
@@ -558,16 +597,6 @@ static void assignDomains(struct apcie_dev *sc) {
 				       func);
 		}
 	}
-}
-
-static int apcie_is_compatible_device(struct pci_dev *dev)
-{
-	if (!dev || dev->vendor != PCI_VENDOR_ID_SONY) {
-		return 0;
-	}
-	return (dev->device == PCI_DEVICE_ID_SONY_AEOLIA_PCIE ||
-		dev->device == PCI_DEVICE_ID_SONY_BELIZE_PCIE ||
-		dev->device == PCI_DEVICE_ID_SONY_BAIKAL_PCIE);
 }
 
 int apcie_assign_irqs(struct pci_dev *dev, int nvec)
@@ -836,7 +865,7 @@ static int apcie_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 	struct apcie_dev *sc;
 	int ret;
 
-	dev_dbg(&dev->dev, "apcie_probe()\n");
+	dev_info(&dev->dev, "apcie_probe()\n");
 
 	ret = pci_enable_device(dev);
 	if (ret) {
@@ -866,6 +895,8 @@ static int apcie_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 		ret = -EIO;
 		goto free_bars;
 	}
+
+	memset(sc->irq_map, -1, 100);
 
 	sc->is_baikal = sc->pdev->device == PCI_DEVICE_ID_SONY_BAIKAL_PCIE;
 	if(sc->is_baikal) {
