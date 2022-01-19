@@ -516,23 +516,45 @@ static struct irq_domain *apcie_create_irq_domain(struct apcie_dev *sc, struct p
 	return domain;
 }
 
-static void create_irq_domains(struct apcie_dev *sc) {
+// This should assign the PCIE irq domain to every pcie device under the
+// AEOLIA/BAIKAL/BELIZE chip
+static void assignDomains(struct apcie_dev *sc) {
 	int func;
-	struct irq_domain * domain;
+	struct irq_domain* domain;
+	struct pci_dev* pdev;
+
+	unsigned int devfn;
+	struct pci_dev* sc_dev;
+
+	// First make a PCIE domain so we can assign the rest
+	sc_dev = sc->pdev;
+	devfn = (sc_dev->devfn & ~7) | AEOLIA_FUNC_ID_PCIE;
+	pdev = pci_get_slot(sc_dev->bus, devfn);
+
+	if (pdev) {
+		domain = apcie_create_irq_domain(sc, pdev);
+		sc->irqdomain = domain;
+		pci_dev_put(pdev);
+	} else {
+		sc_err("cannot create pcie irqdomain!");
+		return;
+	}
+
+
+	// Now we can use the PCIE domain everywhere else
 	for (func = 0; func < AEOLIA_NUM_FUNCS; ++func) {
-		unsigned int devfn;
-		struct pci_dev *sc_dev;
+		if (func != AEOLIA_FUNC_ID_PCIE) {
+			devfn = (sc_dev->devfn & ~7) | func;
+			pdev = pci_get_slot(sc_dev->bus, devfn);
 
-		sc_dev = sc->pdev;
-		devfn = (sc_dev->devfn & ~7) | func;
-		struct pci_dev * pdev = pci_get_slot(sc_dev->bus, devfn);
+			if (pdev) {
+				dev_set_msi_domain(&pdev->dev, sc->irqdomain);
 
-		if (pdev) {
-			domain = apcie_create_irq_domain(sc, pdev);
-			if (func == AEOLIA_FUNC_ID_PCIE) sc->irqdomain = domain;
-			pci_dev_put(pdev);
-		} else
-			sc_err("cannot find apcie func %d device", func);
+				pci_dev_put(pdev);
+			} else
+				sc_err("cannot find apcie func %d device",
+				       func);
+		}
 	}
 }
 
@@ -571,6 +593,12 @@ int apcie_assign_irqs(struct pci_dev *dev, int nvec)
 	}
 
 	if((!dev->msi_enabled) && (sc->is_baikal)) {
+		#ifndef QEMU_HACK_NO_IOMMU
+			if (!(apcie_msi_domain_info.flags & MSI_FLAG_MULTI_PCI_MSI)) {
+				nvec = 1;
+			}
+		#endif
+
 		ret = pci_alloc_irq_vectors(dev, 1, nvec, PCI_IRQ_MSI);
 	} else if ((!dev->msi_enabled) && (!sc->is_baikal)) {
 		init_irq_alloc_info(&info, NULL);
@@ -719,8 +747,9 @@ static int apcie_glue_init(struct apcie_dev *sc)
 	}
 
 	if(sc->is_baikal) {
-		create_irq_domains(sc);
+		assignDomains(sc);
 	} else {
+		// TODO: aeolia/ belize, the previous function should also work here
 		sc->irqdomain = apcie_create_irq_domain(sc, sc->pdev);
 	}
 	if (!sc->irqdomain) {
