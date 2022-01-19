@@ -440,6 +440,8 @@ void apcie_set_desc(msi_alloc_info_t *arg, struct msi_desc *desc)
 	sc_devfn = (dev->devfn & ~7) | AEOLIA_FUNC_ID_PCIE;
 	sc_dev = pci_get_slot(dev->bus, sc_devfn);
 
+	arg->devid = pci_dev_id(sc_dev);
+
 	if(sc_dev->device == PCI_DEVICE_ID_SONY_BAIKAL_PCIE) {
 		//Our hwirq number is (slot << 8) | (func << 5) plus subfunction.
 		// Subfunction is usually 0 and implicitly increments per hwirq,
@@ -570,7 +572,7 @@ static int apcie_is_compatible_device(struct pci_dev *dev)
 
 int apcie_assign_irqs(struct pci_dev *dev, int nvec)
 {
-	int ret;
+	int ret = 0;
 	unsigned int sc_devfn;
 	struct pci_dev *sc_dev;
 	struct apcie_dev *sc;
@@ -587,56 +589,62 @@ int apcie_assign_irqs(struct pci_dev *dev, int nvec)
 	}
 	sc = pci_get_drvdata(sc_dev);
 	if (!sc) {
-		dev_err(&dev->dev, "apcie: not ready yet, cannot assign IRQs\n");
+		dev_err(&dev->dev,
+			"apcie: not ready yet, cannot assign IRQs\n");
 		ret = -ENODEV;
 		goto fail;
 	}
 
-	if((!dev->msi_enabled) && (sc->is_baikal)) {
-		#ifndef QEMU_HACK_NO_IOMMU
-			if (!(apcie_msi_domain_info.flags & MSI_FLAG_MULTI_PCI_MSI)) {
+	if (!dev->msi_enabled) {
+		if (sc->is_baikal) {
+#ifndef QEMU_HACK_NO_IOMMU
+			if (!(apcie_msi_domain_info.flags &
+			      MSI_FLAG_MULTI_PCI_MSI)) {
 				nvec = 1;
 			}
-		#endif
+#endif
 
-		ret = pci_alloc_irq_vectors(dev, 1, nvec, PCI_IRQ_MSI);
-	} else if ((!dev->msi_enabled) && (!sc->is_baikal)) {
-		init_irq_alloc_info(&info, NULL);
-		info.type = X86_IRQ_ALLOC_TYPE_PCI_MSI;
-		/* IRQs "come from" function 4 as far as the IOMMU/system see */
-		//info.msi_dev = sc->pdev;
-		info.devid = pci_dev_id(sc->pdev);
+			ret = pci_alloc_irq_vectors(dev, 1, nvec, PCI_IRQ_MSI);
+		} else {
+			init_irq_alloc_info(&info, NULL);
+			info.type = X86_IRQ_ALLOC_TYPE_PCI_MSI;
+			/* IRQs "come from" function 4 as far as the IOMMU/system see */
+			//info.msi_dev = sc->pdev;
+			info.devid = pci_dev_id(sc->pdev);
 
-		/* Our hwirq number is function << 8 plus subfunction.
-	 	* Subfunction is usually 0 and implicitly increments per hwirq,
-	 	* but can also be 0xff to indicate that this is a shared IRQ. */
-		info.hwirq = PCI_FUNC(dev->devfn) << 8;
+			/* Our hwirq number is function << 8 plus subfunction.
+	 		 * Subfunction is usually 0 and implicitly increments per hwirq,
+	 		 * but can also be 0xff to indicate that this is a shared IRQ. */
+			 info.hwirq = PCI_FUNC(dev->devfn) << 8;
 
-		#ifndef QEMU_HACK_NO_IOMMU
-		info.flags = X86_IRQ_ALLOC_CONTIGUOUS_VECTORS;
-		if (!(apcie_msi_domain_info.flags & MSI_FLAG_MULTI_PCI_MSI)) {
-			nvec = 1;
-			info.hwirq |= 0x1f; /* Shared IRQ for all subfunctions */
-		}
-		#endif
+#ifndef QEMU_HACK_NO_IOMMU
+			info.flags = X86_IRQ_ALLOC_CONTIGUOUS_VECTORS;
+			if (!(apcie_msi_domain_info.flags &
+			      MSI_FLAG_MULTI_PCI_MSI)) {
+				nvec = 1;
+				info.hwirq |=
+					0x1f; /* Shared IRQ for all subfunctions */
+			}
+#endif
 
-		dev_set_msi_domain(&dev->dev, sc->irqdomain);
-		desc = alloc_msi_entry(&sc->pdev->dev, nvec, NULL);
+			//dev_set_msi_domain(&dev->dev, sc->irqdomain);
+			desc = alloc_msi_entry(&sc->pdev->dev, nvec, NULL);
 
-		info.desc = desc;
-		info.data = sc;
+			info.desc = desc;
+			info.data = sc;
 
-		dev_info(&dev->dev, "apcie_assign_irqs(%d) (%d)\n", nvec,
-			 (int)info.hwirq);
+			dev_info(&dev->dev, "apcie_assign_irqs(%d) (%d)\n",
+				 nvec, (int)info.hwirq);
 
-		ret = irq_domain_alloc_irqs(sc->irqdomain, nvec, NUMA_NO_NODE,
-					    &info);
-		if (ret >= 0) {
-			dev_info(&dev->dev, "irq_domain_alloc_irqs = %x\n",
-				 ret);
-			dev->irq = ret;
-			desc->irq = ret;
-			ret = nvec;
+			ret = irq_domain_alloc_irqs(sc->irqdomain, nvec,
+						    NUMA_NO_NODE, &info);
+			if (ret >= 0) {
+				dev_info(&dev->dev,
+					 "irq_domain_alloc_irqs = %x\n", ret);
+				dev->irq = ret;
+				desc->irq = ret;
+				ret = nvec;
+			}
 		}
 	} else {
 		ret = nvec;
