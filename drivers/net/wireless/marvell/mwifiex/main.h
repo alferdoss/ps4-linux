@@ -198,7 +198,9 @@ enum MWIFIEX_DEBUG_LEVEL {
 	MWIFIEX_DBG_ANY		= 0xffffffff
 };
 
-#define MWIFIEX_DEFAULT_DEBUG_MASK	(MWIFIEX_DBG_ANY)
+#define MWIFIEX_DEFAULT_DEBUG_MASK	(MWIFIEX_DBG_MSG | \
+					MWIFIEX_DBG_FATAL | \
+					MWIFIEX_DBG_ERROR)
 
 __printf(3, 4)
 void _mwifiex_dbg(const struct mwifiex_adapter *adapter, int mask,

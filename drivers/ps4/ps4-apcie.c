@@ -754,12 +754,8 @@ static int apcie_glue_init(struct apcie_dev *sc)
 		glue_set_region(sc, AEOLIA_FUNC_ID_XHCI, 5, 0, 0);
 	}
 
-	if(sc->is_baikal) {
-		assignDomains(sc);
-	} else {
-		// TODO: aeolia/ belize, the previous function should also work here
-		sc->irqdomain = apcie_create_irq_domain(sc, sc->pdev);
-	}
+	assignDomains(sc);
+
 	if (!sc->irqdomain) {
 		sc_err("Failed to create IRQ domain");
 		apcie_glue_remove(sc);
