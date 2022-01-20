@@ -485,6 +485,10 @@ void apcie_set_desc(msi_alloc_info_t *arg, struct msi_desc *desc)
 
 	arg->devid = pci_dev_id(sc_dev);
 
+	// Reassign the device,
+	// because all interrupts come from the AEOLIA/BELIZE/BAIKAL chip
+	arg->desc->dev = &sc_dev->dev;
+
 	if(sc_dev->device == PCI_DEVICE_ID_SONY_BAIKAL_PCIE) {
 		//Our hwirq number is (slot << 8) | (func << 5) plus subfunction.
 		// Subfunction is usually 0 and implicitly increments per hwirq,
