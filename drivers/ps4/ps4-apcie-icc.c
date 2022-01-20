@@ -565,6 +565,8 @@ int apcie_icc_init(struct apcie_dev *sc)
 		goto unassign_global;
 	}
 
+	apcie_initialized = true;
+
 	resetBtWlan();
 
 	// TODO (ps4patches): Aeolia/Belize has this originally in comments

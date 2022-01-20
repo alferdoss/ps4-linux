@@ -423,10 +423,12 @@ static int apcie_msi_init(struct irq_domain *domain,
 		apcie_msi_calc_mask(data);
 	}
 
-	for(i = 0; i < 100; i++) {
-		if(sc->irq_map[i] == -1) {
-			sc->irq_map[i] = (int8_t) virq;
-			break;
+	if (sc) {
+		for (i = 0; i < 100; i++) {
+			if (sc->irq_map[i] == -1) {
+				sc->irq_map[i] = (int8_t)virq;
+				break;
+			}
 		}
 	}
 
@@ -442,11 +444,13 @@ static void apcie_msi_free(struct irq_domain *domain,
 
 	pr_err("apcie_msi_free(%d)\n", virq);
 
-	// TODO (ps4patches): not sure what's supposed to happen here
-	for(i = 0; i < 100; i++) {
-		if(sc->irq_map[i] == virq) {
-			sc->irq_map[i] = -1;
-			break;
+	if (sc) {
+		// TODO (ps4patches): not sure what's supposed to happen here
+		for (i = 0; i < 100; i++) {
+			if (sc->irq_map[i] == virq) {
+				sc->irq_map[i] = -1;
+				break;
+			}
 		}
 	}
 }
@@ -915,7 +919,6 @@ static int apcie_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 	if ((ret = apcie_icc_init(sc)) < 0)
 		goto remove_glue;
 
-	apcie_initialized = true;
 	return 0;
 
 remove_uart:
