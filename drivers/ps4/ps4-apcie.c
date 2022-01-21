@@ -475,57 +475,57 @@ void apcie_set_desc(msi_alloc_info_t *arg, struct msi_desc *desc)
 	//IRQs "come from" function 4 as far as the IOMMU/system see
 	unsigned int sc_devfn = 0;
 	struct pci_dev *sc_dev = NULL;
-    struct apcie_dev *sc = NULL;
-    struct pci_dev *dev = msi_desc_to_pci_dev(desc);
+	struct apcie_dev *sc = NULL;
+	struct pci_dev *dev = msi_desc_to_pci_dev(desc);
 
-    arg->desc = desc;
+	arg->desc = desc;
 
-    if (dev) {
-        sc_devfn = (dev->devfn & ~7) | AEOLIA_FUNC_ID_PCIE;
-        sc_dev = pci_get_slot(dev->bus, sc_devfn);
+	if (dev) {
+		sc_devfn = (dev->devfn & ~7) | AEOLIA_FUNC_ID_PCIE;
+		sc_dev = pci_get_slot(dev->bus, sc_devfn);
 
-        sc = pci_get_drvdata(sc_dev);
-        arg->devid = pci_dev_id(sc_dev);
+		sc = pci_get_drvdata(sc_dev);
+		arg->devid = pci_dev_id(sc_dev);
 
-        arg->type = X86_IRQ_ALLOC_TYPE_PCI_MSI;
+		arg->type = X86_IRQ_ALLOC_TYPE_PCI_MSI;
 
-        // !irq_chip_inited is so it can set a hwirq for all the irq_chip devices
-        if ((arg->desc->dev != &sc_dev->dev) || (!sc->irq_chip_inited)) {
-            pr_info("Modifying HWIRQ: %x\n", arg->hwirq);
+		// !irq_chip_inited is so it can set a hwirq for all the irq_chip devices
+		if ((arg->desc->dev != &sc_dev->dev) || (!sc->irq_chip_inited)) {
+			pr_info("Modifying HWIRQ: %x\n", arg->hwirq);
 
-            if (sc_dev->device == PCI_DEVICE_ID_SONY_BAIKAL_PCIE) {
-                //Our hwirq number is (slot << 8) | (func << 5) plus subfunction.
-                // Subfunction is usually 0 and implicitly increments per hwirq,
-                //but can also be 0xff to indicate that this is a shared IRQ.'
-                arg->hwirq = (PCI_SLOT(dev->devfn) << 8) |
-                             (PCI_FUNC(dev->devfn) << 5);
-            } else {
-                //Our hwirq number is (slot << 8) plus subfunction.
-                // Subfunction is usually 0 and implicitly increments per hwirq,
-                //but can also be 0xff to indicate that this is a shared IRQ.'
-                arg->hwirq = (PCI_FUNC(dev->devfn) << 8);
-            }
+			if (sc_dev->device == PCI_DEVICE_ID_SONY_BAIKAL_PCIE) {
+				//Our hwirq number is (slot << 8) | (func << 5) plus subfunction.
+				// Subfunction is usually 0 and implicitly increments per hwirq,
+				//but can also be 0xff to indicate that this is a shared IRQ.'
+				arg->hwirq = (PCI_SLOT(dev->devfn) << 8) |
+					(PCI_FUNC(dev->devfn) << 5);
+			} else {
+				//Our hwirq number is (slot << 8) plus subfunction.
+				// Subfunction is usually 0 and implicitly increments per hwirq,
+				//but can also be 0xff to indicate that this is a shared IRQ.'
+				arg->hwirq = (PCI_FUNC(dev->devfn) << 8);
+			}
 
 #ifndef QEMU_HACK_NO_IOMMU
-            arg->flags = X86_IRQ_ALLOC_CONTIGUOUS_VECTORS;
-            if (!(apcie_msi_domain_info.flags & MSI_FLAG_MULTI_PCI_MSI)) {
-                arg->hwirq |= 0x1F; // Shared IRQ for all subfunctions
-            }
+			arg->flags = X86_IRQ_ALLOC_CONTIGUOUS_VECTORS;
+			if (!(apcie_msi_domain_info.flags & MSI_FLAG_MULTI_PCI_MSI)) {
+				arg->hwirq |= 0x1F; // Shared IRQ for all subfunctions
+			}
 #endif
 
-            // Reassign the device,
-            // because all interrupts come from the AEOLIA/BELIZE/BAIKAL chip
-            if (arg->desc->dev != &sc_dev->dev) {
-                pr_info("Reassigning device\n", arg->hwirq);
+			// Reassign the device,
+			// because all interrupts come from the AEOLIA/BELIZE/BAIKAL chip
+			if (arg->desc->dev != &sc_dev->dev) {
+				pr_info("Reassigning device\n", arg->hwirq);
 
-                arg->desc->dev = &sc_dev->dev;
-            }
-        }
-    }
+				arg->desc->dev = &sc_dev->dev;
+			}
+		}
+	}
 
-    pci_dev_put(sc_dev);
+	pci_dev_put(sc_dev);
 
-    pr_info("set_desc HWIRQ: %x\n", arg->hwirq);
+	pr_info("set_desc HWIRQ: %x\n", arg->hwirq);
 }
 
 static struct irq_domain *apcie_create_irq_domain(struct apcie_dev *sc, struct pci_dev *pdev)
@@ -612,19 +612,19 @@ static void assignDomains(struct apcie_dev *sc)
 			pdev = pci_get_slot(sc_dev->bus, devfn);
 
 			if (pdev) {
-                // Domain per subdevice
-                apcie_create_irq_domain(sc, pdev);
+				// Domain per subdevice
+				apcie_create_irq_domain(sc, pdev);
 
-                pci_dev_put(pdev);
+				pci_dev_put(pdev);
 			} else
 				sc_err("cannot find apcie func %d device",
-				       func);
+						func);
 		}
 	}
 }
 
 int msi_capability_init(struct pci_dev *dev, int nvec,
-                        struct irq_affinity *affd);
+        struct irq_affinity *affd);
 int apcie_assign_irqs(struct pci_dev *dev, int nvec)
 {
 	int ret = 0;
@@ -645,27 +645,27 @@ int apcie_assign_irqs(struct pci_dev *dev, int nvec)
 	sc = pci_get_drvdata(sc_dev);
 	if (!sc) {
 		dev_err(&dev->dev,
-			"apcie: not ready yet, cannot assign IRQs\n");
+				"apcie: not ready yet, cannot assign IRQs\n");
 		ret = -ENODEV;
 		goto fail;
 	}
 
 	if (!dev->msi_enabled) {
 #ifndef QEMU_HACK_NO_IOMMU
-			if (!(apcie_msi_domain_info.flags &
-			      MSI_FLAG_MULTI_PCI_MSI)) {
-				nvec = 1;
-			}
+		if (!(apcie_msi_domain_info.flags &
+					MSI_FLAG_MULTI_PCI_MSI)) {
+			nvec = 1;
+		}
 #endif
 
-        if (sc->is_baikal) {
-            ret = pci_alloc_irq_vectors(dev, 1, nvec, PCI_IRQ_MSI);
-        } else {
-            ret = msi_capability_init(dev, nvec, NULL);
-            if (ret == 0) {
-                ret = nvec;
-            }
-        }
+		if (sc->is_baikal) {
+			ret = pci_alloc_irq_vectors(dev, 1, nvec, PCI_IRQ_MSI);
+		} else {
+			ret = msi_capability_init(dev, nvec, NULL);
+			if (ret == 0) {
+				ret = nvec;
+			}
+		}
 	} else {
 		ret = nvec;
 	}
@@ -783,11 +783,9 @@ static int apcie_glue_init(struct apcie_dev *sc)
 	}
 
 	if(sc->is_baikal)
-		sc->nvec = pci_alloc_irq_vectors(sc->pdev, APCIE_SUBFUNC_ICC+1, APCIE_NUM_SUBFUNCS, PCI_IRQ_MSI);
+		sc->nvec = pci_alloc_irq_vectors(sc->pdev, BPCIE_SUBFUNC_ICC+1, BPCIE_NUM_SUBFUNCS, PCI_IRQ_MSI);
 	else
-	{
 		sc->nvec = apcie_assign_irqs(sc->pdev, APCIE_NUM_SUBFUNCS);
-	}
 
 	if (sc->nvec <= 0) {
 		sc_err("Failed to assign IRQs");
@@ -795,9 +793,9 @@ static int apcie_glue_init(struct apcie_dev *sc)
 		return -EIO;
 	}
 
-    sc->irq_chip_inited = true;
+	sc->irq_chip_inited = true;
 
-    sc_dbg("dev->irq=%d\n", sc->pdev->irq);
+	sc_dbg("dev->irq=%d\n", sc->pdev->irq);
 
 	return 0;
 }
