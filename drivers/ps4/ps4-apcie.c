@@ -473,44 +473,59 @@ static struct msi_domain_info apcie_msi_domain_info = {
 void apcie_set_desc(msi_alloc_info_t *arg, struct msi_desc *desc)
 {
 	//IRQs "come from" function 4 as far as the IOMMU/system see
-	unsigned int sc_devfn;
-	struct pci_dev *sc_dev;
-	struct pci_dev *dev = msi_desc_to_pci_dev(desc);
+	unsigned int sc_devfn = 0;
+	struct pci_dev *sc_dev = NULL;
+    struct apcie_dev *sc = NULL;
+    struct pci_dev *dev = msi_desc_to_pci_dev(desc);
 
-	arg->desc = desc;
-	arg->type = X86_IRQ_ALLOC_TYPE_PCI_MSI;
+    arg->desc = desc;
 
-	sc_devfn = (dev->devfn & ~7) | AEOLIA_FUNC_ID_PCIE;
-	sc_dev = pci_get_slot(dev->bus, sc_devfn);
+    if (dev) {
+        sc_devfn = (dev->devfn & ~7) | AEOLIA_FUNC_ID_PCIE;
+        sc_dev = pci_get_slot(dev->bus, sc_devfn);
 
-	arg->devid = pci_dev_id(sc_dev);
+        sc = pci_get_drvdata(sc_dev);
+        arg->devid = pci_dev_id(sc_dev);
 
-	// Reassign the device,
-	// because all interrupts come from the AEOLIA/BELIZE/BAIKAL chip
-	arg->desc->dev = &sc_dev->dev;
+        arg->type = X86_IRQ_ALLOC_TYPE_PCI_MSI;
 
-	if(sc_dev->device == PCI_DEVICE_ID_SONY_BAIKAL_PCIE) {
-		//Our hwirq number is (slot << 8) | (func << 5) plus subfunction.
-		// Subfunction is usually 0 and implicitly increments per hwirq,
-		//but can also be 0xff to indicate that this is a shared IRQ.'
-		arg->hwirq = (PCI_SLOT(dev->devfn) << 8) |
-			     (PCI_FUNC(dev->devfn) << 5);
-	} else {
-		//Our hwirq number is (slot << 8) plus subfunction.
-		// Subfunction is usually 0 and implicitly increments per hwirq,
-		//but can also be 0xff to indicate that this is a shared IRQ.'
-		arg->hwirq = (PCI_FUNC(dev->devfn) << 8);
-	}
+        // !irq_chip_inited is so it can set a hwirq for all the irq_chip devices
+        if ((arg->desc->dev != &sc_dev->dev) || (!sc->irq_chip_inited)) {
+            pr_info("Modifying HWIRQ: %x\n", arg->hwirq);
+
+            if (sc_dev->device == PCI_DEVICE_ID_SONY_BAIKAL_PCIE) {
+                //Our hwirq number is (slot << 8) | (func << 5) plus subfunction.
+                // Subfunction is usually 0 and implicitly increments per hwirq,
+                //but can also be 0xff to indicate that this is a shared IRQ.'
+                arg->hwirq = (PCI_SLOT(dev->devfn) << 8) |
+                             (PCI_FUNC(dev->devfn) << 5);
+            } else {
+                //Our hwirq number is (slot << 8) plus subfunction.
+                // Subfunction is usually 0 and implicitly increments per hwirq,
+                //but can also be 0xff to indicate that this is a shared IRQ.'
+                arg->hwirq = (PCI_FUNC(dev->devfn) << 8);
+            }
 
 #ifndef QEMU_HACK_NO_IOMMU
-	arg->flags = X86_IRQ_ALLOC_CONTIGUOUS_VECTORS;
-	if (!(apcie_msi_domain_info.flags & MSI_FLAG_MULTI_PCI_MSI)) {
-		arg->hwirq |= 0x1F; // Shared IRQ for all subfunctions
-	}
+            arg->flags = X86_IRQ_ALLOC_CONTIGUOUS_VECTORS;
+            if (!(apcie_msi_domain_info.flags & MSI_FLAG_MULTI_PCI_MSI)) {
+                arg->hwirq |= 0x1F; // Shared IRQ for all subfunctions
+            }
 #endif
 
-	pr_info("set_desc hwirq: %x\n", arg->hwirq);
-	pci_dev_put(sc_dev);
+            // Reassign the device,
+            // because all interrupts come from the AEOLIA/BELIZE/BAIKAL chip
+            if (arg->desc->dev != &sc_dev->dev) {
+                pr_info("Reassigning device\n", arg->hwirq);
+
+                arg->desc->dev = &sc_dev->dev;
+            }
+        }
+    }
+
+    pci_dev_put(sc_dev);
+
+    pr_info("set_desc HWIRQ: %x\n", arg->hwirq);
 }
 
 static struct irq_domain *apcie_create_irq_domain(struct apcie_dev *sc, struct pci_dev *pdev)
@@ -597,9 +612,10 @@ static void assignDomains(struct apcie_dev *sc)
 			pdev = pci_get_slot(sc_dev->bus, devfn);
 
 			if (pdev) {
-				dev_set_msi_domain(&pdev->dev, sc->irqdomain);
+                // Domain per subdevice
+                apcie_create_irq_domain(sc, pdev);
 
-				pci_dev_put(pdev);
+                pci_dev_put(pdev);
 			} else
 				sc_err("cannot find apcie func %d device",
 				       func);
@@ -607,6 +623,8 @@ static void assignDomains(struct apcie_dev *sc)
 	}
 }
 
+int msi_capability_init(struct pci_dev *dev, int nvec,
+                        struct irq_affinity *affd);
 int apcie_assign_irqs(struct pci_dev *dev, int nvec)
 {
 	int ret = 0;
@@ -633,7 +651,6 @@ int apcie_assign_irqs(struct pci_dev *dev, int nvec)
 	}
 
 	if (!dev->msi_enabled) {
-		if (sc->is_baikal) {
 #ifndef QEMU_HACK_NO_IOMMU
 			if (!(apcie_msi_domain_info.flags &
 			      MSI_FLAG_MULTI_PCI_MSI)) {
@@ -641,48 +658,14 @@ int apcie_assign_irqs(struct pci_dev *dev, int nvec)
 			}
 #endif
 
-			ret = pci_alloc_irq_vectors(dev, 1, nvec, PCI_IRQ_MSI);
-		} else {
-			init_irq_alloc_info(&info, NULL);
-			info.type = X86_IRQ_ALLOC_TYPE_PCI_MSI;
-			/* IRQs "come from" function 4 as far as the IOMMU/system see */
-			//info.msi_dev = sc->pdev;
-			info.devid = pci_dev_id(sc->pdev);
-
-			/* Our hwirq number is function << 8 plus subfunction.
-	 		 * Subfunction is usually 0 and implicitly increments per hwirq,
-	 		 * but can also be 0xff to indicate that this is a shared IRQ. */
-			 info.hwirq = PCI_FUNC(dev->devfn) << 8;
-
-#ifndef QEMU_HACK_NO_IOMMU
-			info.flags = X86_IRQ_ALLOC_CONTIGUOUS_VECTORS;
-			if (!(apcie_msi_domain_info.flags &
-			      MSI_FLAG_MULTI_PCI_MSI)) {
-				nvec = 1;
-				info.hwirq |=
-					0x1f; /* Shared IRQ for all subfunctions */
-			}
-#endif
-
-			//dev_set_msi_domain(&dev->dev, sc->irqdomain);
-			desc = alloc_msi_entry(&sc->pdev->dev, nvec, NULL);
-
-			info.desc = desc;
-			info.data = sc;
-
-			dev_info(&dev->dev, "apcie_assign_irqs(%d) (%d)\n",
-				 nvec, (int)info.hwirq);
-
-			ret = irq_domain_alloc_irqs(sc->irqdomain, nvec,
-						    NUMA_NO_NODE, &info);
-			if (ret >= 0) {
-				dev_info(&dev->dev,
-					 "irq_domain_alloc_irqs = %x\n", ret);
-				dev->irq = ret;
-				desc->irq = ret;
-				ret = nvec;
-			}
-		}
+        if (sc->is_baikal) {
+            ret = pci_alloc_irq_vectors(dev, 1, nvec, PCI_IRQ_MSI);
+        } else {
+            ret = msi_capability_init(dev, nvec, NULL);
+            if (ret == 0) {
+                ret = nvec;
+            }
+        }
 	} else {
 		ret = nvec;
 	}
@@ -811,7 +794,10 @@ static int apcie_glue_init(struct apcie_dev *sc)
 		apcie_glue_remove(sc);
 		return -EIO;
 	}
-	sc_dbg("dev->irq=%d\n", sc->pdev->irq);
+
+    sc->irq_chip_inited = true;
+
+    sc_dbg("dev->irq=%d\n", sc->pdev->irq);
 
 	return 0;
 }
@@ -904,6 +890,7 @@ static int apcie_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 		goto free_bars;
 	}
 
+    sc->irq_chip_inited = false;
 	memset(sc->irq_map, -1, 100);
 
 	sc->is_baikal = sc->pdev->device == PCI_DEVICE_ID_SONY_BAIKAL_PCIE;

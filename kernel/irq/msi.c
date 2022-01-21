@@ -587,7 +587,7 @@ int __msi_domain_alloc_irqs(struct irq_domain *domain, struct device *dev,
 	for_each_msi_vector(desc, i, dev) {
 		if (desc->irq == i) {
 			virq = desc->irq;
-			dev_dbg(dev, "irq [%d-%d] for MSI\n",
+			dev_info(dev, "irq [%d-%d] for MSI\n",
 				virq, virq + desc->nvec_used - 1);
 		}
 
