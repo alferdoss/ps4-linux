@@ -356,7 +356,7 @@ static int aeolia_probe_slot(struct sdhci_pci_slot *slot)
 
 static void aeolia_remove_slot(struct sdhci_pci_slot *slot, int dead)
 {
-	apcie_free_irqs(slot->chip->pdev->irq, 1);
+	apcie_free_irqs(slot->chip->pdev);
 }
 
 static int aeolia_enable_dma(struct sdhci_pci_slot *slot)

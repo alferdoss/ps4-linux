@@ -1979,7 +1979,7 @@ static void ahci_remove_one(struct pci_dev *pdev)
 
 	#ifdef CONFIG_X86_PS4
 	if (pdev->vendor == PCI_VENDOR_ID_SONY) {
-		apcie_free_irqs(pdev->irq, 1);
+		apcie_free_irqs(pdev);
 	}
 	#endif
 }

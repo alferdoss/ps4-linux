@@ -503,7 +503,7 @@ int apcie_icc_init(struct apcie_dev *sc)
 	}
 
 	// For baikal the whole of bar 2 is requested in glue_init
-	if(sc->pdev->device != PCI_DEVICE_ID_SONY_BAIKAL_PCIE) {
+	if(!sc->is_baikal) {
 		if (!request_mem_region(pci_resource_start(sc->pdev, 4) +
 						APCIE_RGN_ICC_BASE,
 					APCIE_RGN_ICC_SIZE, "apcie.icc")) {
@@ -571,7 +571,7 @@ int apcie_icc_init(struct apcie_dev *sc)
 
 	// TODO (ps4patches): Aeolia/Belize has this originally in comments
 	// why can't we use it there?
-	if(sc->pdev->device == PCI_DEVICE_ID_SONY_BAIKAL_PCIE)
+	if(sc->is_baikal)
 		resetUsbPort();
 
 	ret = icc_pwrbutton_init(sc);

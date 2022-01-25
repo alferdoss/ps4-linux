@@ -444,6 +444,7 @@ static void apcie_msi_free(struct irq_domain *domain,
 
 	pr_err("apcie_msi_free(%d)\n", virq);
 
+
 	if (sc) {
 		// TODO (ps4patches): not sure what's supposed to happen here
 		for (i = 0; i < 100; i++) {
@@ -678,9 +679,14 @@ fail:
 }
 EXPORT_SYMBOL(apcie_assign_irqs);
 
-void apcie_free_irqs(unsigned int virq, unsigned int nr_irqs)
+void apcie_free_irqs(struct pci_dev* dev)
 {
-	irq_domain_free_irqs(virq, nr_irqs);
+	if (dev != NULL &&
+	    dev->irq != NULL &&
+	    dev_get_msi_domain(&dev->dev) != NULL) {
+		// TODO (ps4patches): This might be duplicate and already handled nowadays
+		__msi_domain_free_irqs(dev_get_msi_domain(&dev->dev), &dev->dev);
+	}
 }
 EXPORT_SYMBOL(apcie_free_irqs);
 
@@ -804,7 +810,7 @@ static void apcie_glue_remove(struct apcie_dev *sc) {
 	sc_info("apcie glue remove\n");
 
 	if (sc->nvec > 0) {
-		apcie_free_irqs(sc->pdev->irq, sc->nvec);
+		apcie_free_irqs(sc->pdev);
 		sc->nvec = 0;
 	}
 	if (sc->irqdomain) {
