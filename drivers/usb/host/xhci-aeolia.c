@@ -415,8 +415,11 @@ static int xhci_aeolia_probe(struct pci_dev *dev, const struct pci_device_id *id
 	}
 
 	if(dev->device != PCI_DEVICE_ID_SONY_AEOLIA_XHCI) {
-		retval = ahci_init_one(dev);
-		dev_dbg(&dev->dev, "ahci_init_one returned %d", retval);
+		// TODO (ps4patches): fix hdd support for baikal
+		if (dev->device != PCI_DEVICE_ID_SONY_BAIKAL_XHCI) {
+		  retval = ahci_init_one(dev);
+		  dev_dbg(&dev->dev, "ahci_init_one returned %d", retval);
+		}
 		if (!bus_master) {
 			pci_set_master(dev);
 			bus_master = true;
@@ -461,8 +464,11 @@ static void xhci_aeolia_remove(struct pci_dev *dev)
 		if(dev->device != PCI_DEVICE_ID_SONY_AEOLIA_XHCI) {
 			if(idx != 1)
 				xhci_aeolia_remove_one(dev, idx);
-			else
-				ahci_remove_one(dev);				
+			else {
+				if (dev->device == PCI_DEVICE_ID_SONY_BAIKAL_XHCI) {
+					ahci_remove_one(dev);				
+				}
+			}
 		}
 		else
 			xhci_aeolia_remove_one(dev, idx);
