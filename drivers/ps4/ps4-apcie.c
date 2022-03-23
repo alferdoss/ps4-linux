@@ -201,7 +201,7 @@ static void baikal_pcie_msi_mask(struct irq_data *data)
 	u32 msi_mask = desc->msi_mask;
 	u32 msi_allocated = desc->nvec_used; //pci_msi_vec_count(msi_desc_to_pci_dev(desc)); 32 for bpcie glue
 
-	if ( msi_allocated > 0 )
+	if (msi_allocated > 0)
 	{
 		u32 result;
 		asm volatile(".intel_syntax noprefix;"
@@ -288,7 +288,8 @@ static void baikal_handle_edge_irq(struct irq_desc *desc)
 	//return handle_edge_irq(desc);
 	u32 func = (desc->irq_data.hwirq >> 5) & 7;
 	u32 initial_hwirq = desc->irq_data.hwirq & ~0x1fLL;
-	//sc_dbg("bpcie_handle_edge_irq(hwirq=0x%X, irq=0x%X)\n", vector, desc->irq_data.irq);
+	pr_info("bpcie_handle_edge_irq(hwirq=0x%X, irq=0x%X)\n", desc->irq_data.hwirq,
+ 	 desc->irq_data.irq);
 
 	if (func == 4)          // Baikal Glue, 5 bits for subfunctions
 	{
@@ -318,8 +319,9 @@ static void baikal_handle_edge_irq(struct irq_desc *desc)
 	vector_read = glue_read32(sc, BPCIE_ACK_READ);
 	raw_spin_unlock(&desc->lock);
 
+	int new_desc_found = 0;
 	unsigned int subfunc_mask = mask & ~(vector_read >> shift);
-	//sc_dbg("subfunc_mask=0x%X, vector_read=0x%X\n", subfunc_mask, vector_read);
+	sc_info("subfunc_mask=0x%X, vector_to_write=0x%X, vector_read=0x%X\n", subfunc_mask, vector_to_write, vector_read);
 	unsigned int i;
 	for (i = 0; i < 32; i++) {
 		if (subfunc_mask & (1 << i)) { //if (test_bit(vector, used_vectors))
@@ -393,7 +395,7 @@ static struct irq_chip baikal_pcie_msi_controller = {
 	.irq_retrigger = irq_chip_retrigger_hierarchy,
 	.irq_compose_msi_msg = apcie_irq_msi_compose_msg,
 	.irq_write_msi_msg = baikal_msi_write_msg,
-	.flags = IRQCHIP_SKIP_SET_WAKE | IRQCHIP_AFFINITY_PRE_STARTUP,
+	.flags = IRQCHIP_SKIP_SET_WAKE,
 };
 
 static irq_hw_number_t apcie_msi_get_hwirq(struct msi_domain_info *info,
@@ -699,16 +701,13 @@ static int apcie_glue_init(struct apcie_dev *sc)
 	sc_info("apcie glue probe\n");
 
 	if(!sc->is_baikal) {
-		if (!request_mem_region(
-			    pci_resource_start(sc->pdev,
-					       sc->glue_bar_to_use_num) +
-				    APCIE_RGN_PCIE_BASE,
-			    APCIE_RGN_PCIE_SIZE, "apcie.glue")) {
+		if (!request_mem_region(pci_resource_start(sc->pdev, 4) +
+				    																	 APCIE_RGN_PCIE_BASE, APCIE_RGN_PCIE_SIZE, 
+																							 "apcie.glue")) {
 			sc_err("Failed to request pcie region\n");
 			return -EBUSY;
 		}
-	}
-	else {
+	} else {
 		if (!request_mem_region(pci_resource_start(sc->pdev, 2), pci_resource_len(sc->pdev, 2),
 					"bpcie.glue")) {
 			sc_err("Failed to request pcie region\n");
@@ -717,22 +716,25 @@ static int apcie_glue_init(struct apcie_dev *sc)
 		}
 	}
 
-	// Use the opposite number of the bar to use
-	if (!request_mem_region(pci_resource_start(sc->pdev, sc->glue_bar_to_use_num == 2 ? 4 : 2) +
-				APCIE_RGN_CHIPID_BASE, APCIE_RGN_CHIPID_SIZE,
-				"apcie.chipid")) {
-		sc_err("Failed to request chipid region\n");
+	if (!sc->is_baikal) {
+		if (!request_mem_region(pci_resource_start(sc->pdev, 2) + 
+		    APCIE_RGN_CHIPID_BASE, APCIE_RGN_CHIPID_SIZE,
+		    "apcie.chipid")) {
+			sc_err("Failed to request chipid region\n");
+			release_mem_region(pci_resource_start(sc->pdev, 4) + APCIE_RGN_PCIE_BASE, APCIE_RGN_PCIE_SIZE);
+			return -EBUSY;
+		}
+	} else {
+		if (!request_mem_region(pci_resource_start(sc->pdev, 4), pci_resource_len(sc->pdev, 4),
+		     "bpcie.chipid")) {
 
-		if(!sc->is_baikal)
-			release_mem_region(pci_resource_start(sc->pdev, sc->glue_bar_to_use_num) +
-				   	APCIE_RGN_PCIE_BASE, APCIE_RGN_PCIE_SIZE);
-		else
+			sc_err("Failed to request chipid region\n");
 			release_mem_region(pci_resource_start(sc->pdev, 2), pci_resource_len(sc->pdev, 2));
-
-		return -EBUSY;
+			return -EBUSY;
+		}
 	}
 
-	if(!sc->is_baikal) {
+	if (!sc->is_baikal) {
 		// Apparently baikal doesn't do this
 		glue_set_region(sc, AEOLIA_FUNC_ID_PCIE, 2, 0xbf018000, 0x7fff);
 
@@ -747,7 +749,7 @@ static int apcie_glue_init(struct apcie_dev *sc)
 			ioread32(sc->bar4 + BPCIE_REG_CHIPREV));
 	}
 
-	if(!sc->is_baikal) {
+	if (!sc->is_baikal) {
 		/* Mask all MSIs first, to avoid spurious IRQs */
 		for (i = 0; i < AEOLIA_NUM_FUNCS; i++) {
 			glue_write32(sc, APCIE_REG_MSI_MASK(i), 0);
@@ -788,8 +790,10 @@ static int apcie_glue_init(struct apcie_dev *sc)
 		return -EIO;
 	}
 
-	if(sc->is_baikal)
-		sc->nvec = pci_alloc_irq_vectors(sc->pdev, BPCIE_SUBFUNC_ICC+1, BPCIE_NUM_SUBFUNCS, PCI_IRQ_MSI);
+	if (sc->is_baikal)
+		sc->nvec =
+			pci_alloc_irq_vectors(sc->pdev, BPCIE_SUBFUNC_ICC + 1,
+					      BPCIE_NUM_SUBFUNCS, PCI_IRQ_MSI);
 	else
 		sc->nvec = apcie_assign_irqs(sc->pdev, APCIE_NUM_SUBFUNCS);
 
@@ -822,13 +826,13 @@ static void apcie_glue_remove(struct apcie_dev *sc) {
 	if(sc->is_baikal) {
 		release_mem_region(pci_resource_start(sc->pdev, 4),
 				   pci_resource_len(sc->pdev, 4));
-		release_mem_region(pci_resource_start(sc->pdev, sc->glue_bar_to_use_num),
-				   pci_resource_len(sc->pdev, sc->glue_bar_to_use_num));
+		release_mem_region(pci_resource_start(sc->pdev, 2),
+				   pci_resource_len(sc->pdev, 2));
 	} else {
 		release_mem_region(pci_resource_start(sc->pdev, 2) +
 					   APCIE_RGN_CHIPID_BASE,
 				   APCIE_RGN_CHIPID_SIZE);
-		release_mem_region(pci_resource_start(sc->pdev, sc->glue_bar_to_use_num) +
+		release_mem_region(pci_resource_start(sc->pdev, 4) +
 					   APCIE_RGN_PCIE_BASE,
 				   APCIE_RGN_PCIE_SIZE);
 	}
@@ -894,7 +898,7 @@ static int apcie_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 		goto free_bars;
 	}
 
-    sc->irq_chip_inited = false;
+	sc->irq_chip_inited = false;
 	memset(sc->irq_map, -1, 100);
 
 	sc->is_baikal = sc->pdev->device == PCI_DEVICE_ID_SONY_BAIKAL_PCIE;
@@ -913,6 +917,8 @@ static int apcie_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 	//	goto remove_glue;
 	if ((ret = apcie_icc_init(sc)) < 0)
 		goto remove_glue;
+
+	apcie_initialized = true;
 
 	return 0;
 
@@ -991,4 +997,5 @@ static struct pci_driver apcie_driver = {
 	.resume		= apcie_resume,
 #endif
 };
+
 module_pci_driver(apcie_driver);

@@ -35,6 +35,8 @@ void icc_i2c_remove(struct apcie_dev *sc);
 int icc_pwrbutton_init(struct apcie_dev *sc);
 void icc_pwrbutton_remove(struct apcie_dev *sc);
 void icc_pwrbutton_trigger(struct apcie_dev *sc, int state);
+void icc_do_pulse_orange(void);
+void icc_do_pulse_orange_with_white(void);
 
 static u16 checksum(const void *p, int length)
 {
@@ -267,8 +269,6 @@ static int _apcie_icc_cmd(struct apcie_dev *sc, u8 major, u16 minor, const void 
 	return sc->icc.reply.length - ICC_HDR_SIZE;
 }
 
-/* From arch/x86/platform/ps4/ps4.c */
-extern bool apcie_initialized;
 int apcie_icc_cmd(u8 major, u16 minor, const void *data, u16 length,
 		   void *reply, u16 reply_length)
 {
@@ -280,10 +280,8 @@ int apcie_icc_cmd(u8 major, u16 minor, const void *data, u16 length,
 		return -EAGAIN;
 	}
 
-	if (apcie_initialized) {
 		ret = _apcie_icc_cmd(icc_sc, major, minor, data, length, reply,
 				     reply_length, false);
-	}
 
 	mutex_unlock(&icc_mutex);
 	return ret;
@@ -409,6 +407,70 @@ static void do_icc_init(void) {
 	printk("ret=%d, reply %02x %02x %02x %02x %02x %02x %02x %02x\n", ret,
 		reply[0], reply[1], reply[2], reply[3],
 		reply[4], reply[5], reply[6], reply[7]);
+
+    /* Set the LED to something nice */
+    ret = apcie_icc_cmd(9, 0x20, led_config, ARRAY_SIZE(led_config), reply, 0x30);
+    printk("ret=%d, reply %02x %02x %02x %02x %02x %02x %02x %02x\n", ret,
+           reply[0], reply[1], reply[2], reply[3],
+           reply[4], reply[5], reply[6], reply[7]);
+}
+
+void icc_do_pulse_orange(void) {
+    u8 svc = 0x10;
+    u8 reply[0x30];
+    u8 led_config[] = {
+            3, 1, 0, 0,
+            0x10, 1, /* Blue: off */
+            2, 0x00, 2, 1, 0x00,
+            0x11, 1, /* White: off */
+            2, 0x00, 2, 1, 0x00,
+            0x02, 3, /* Orange: delay and pulse, loop forever */
+            1, 0x00, 4, 1, 0xbf,
+            2, 0xff, 5, 1, 0xff,
+            2, 0x00, 5, 1, 0xff,
+    };
+    int ret;
+    // test: get FW version
+//	ret = apcie_icc_cmd(2, 6, NULL, 0, reply, 0x30);
+//	printk("ret=%d, reply %02x %02x %02x %02x %02x %02x %02x %02x\n", ret,
+//		reply[0], reply[1], reply[2], reply[3],
+//		reply[4], reply[5], reply[6], reply[7]);
+//	ret = apcie_icc_cmd(1, 0, &svc, 1, reply, 0x30);
+//	printk("ret=%d, reply %02x %02x %02x %02x %02x %02x %02x %02x\n", ret,
+//		reply[0], reply[1], reply[2], reply[3],
+//		reply[4], reply[5], reply[6], reply[7]);
+
+    /* Set the LED to something nice */
+    ret = apcie_icc_cmd(9, 0x20, led_config, ARRAY_SIZE(led_config), reply, 0x30);
+    printk("ret=%d, reply %02x %02x %02x %02x %02x %02x %02x %02x\n", ret,
+           reply[0], reply[1], reply[2], reply[3],
+           reply[4], reply[5], reply[6], reply[7]);
+}
+
+void icc_do_pulse_orange_with_white(void) {
+	u8 svc = 0x10;
+	u8 reply[0x30];
+	u8 led_config[] = {
+		3, 1, 0, 0,
+			0x10, 1, /* Blue: off */
+				2, 0x00, 2, 1, 0x00,
+			0x11, 1, /* White: on */
+				2, 0xff, 2, 1, 0x00,
+			0x02, 3, /* Orange: delay and pulse, loop forever */
+				1, 0x00, 4, 1, 0xbf,
+				2, 0xff, 5, 1, 0xff,
+				2, 0x00, 5, 1, 0xff,
+	};
+	int ret;
+	// test: get FW version
+//	ret = apcie_icc_cmd(2, 6, NULL, 0, reply, 0x30);
+//	printk("ret=%d, reply %02x %02x %02x %02x %02x %02x %02x %02x\n", ret,
+//		reply[0], reply[1], reply[2], reply[3],
+//		reply[4], reply[5], reply[6], reply[7]);
+//	ret = apcie_icc_cmd(1, 0, &svc, 1, reply, 0x30);
+//	printk("ret=%d, reply %02x %02x %02x %02x %02x %02x %02x %02x\n", ret,
+//		reply[0], reply[1], reply[2], reply[3],
+//		reply[4], reply[5], reply[6], reply[7]);
 
 	/* Set the LED to something nice */
 	ret = apcie_icc_cmd(9, 0x20, led_config, ARRAY_SIZE(led_config), reply, 0x30);
@@ -564,8 +626,6 @@ int apcie_icc_init(struct apcie_dev *sc)
 		sc_err("icc: i2c init failed: %d\n", ret);
 		goto unassign_global;
 	}
-
-	apcie_initialized = true;
 
 	resetBtWlan();
 

@@ -644,10 +644,19 @@ void __msi_domain_free_irqs(struct irq_domain *domain, struct device *dev)
 	struct msi_desc *desc;
 	int i;
 
+	pr_info("ps4patches: testing free irqs\n");
 	for_each_msi_vector(desc, i, dev) {
+		dev_info(dev, "freeing %d for domain %s, device has domain %s, has %d irqs used\n",
+			 i, domain->name, dev_get_msi_domain(dev)->name, desc->nvec_used);
+
 		irq_data = irq_domain_get_irq_data(domain, i);
+
+		if(irq_data == NULL) {
+			pr_info("irq_data was NULL\n");
+		}
 		if (irqd_is_activated(irq_data))
 			irq_domain_deactivate_irq(irq_data);
+
 	}
 
 	for_each_msi_entry(desc, dev) {

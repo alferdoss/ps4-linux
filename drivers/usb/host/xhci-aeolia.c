@@ -400,6 +400,7 @@ static int xhci_aeolia_probe(struct pci_dev *dev, const struct pci_device_id *id
 		axhci->nr_irqs = retval = pci_alloc_irq_vectors(
 			dev, NR_DEVICES, INT_MAX, PCI_IRQ_MSIX | PCI_IRQ_MSI);
 	}
+  	dev_info(&dev->dev, "pci_alloc_irq_vectors returned %d", axhci->nr_irqs);
 
 	if (retval < 0) {
 		goto free_axhci;
