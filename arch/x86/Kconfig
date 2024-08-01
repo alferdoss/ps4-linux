@@ -549,7 +549,15 @@ config X86_NUMACHIP
 	  Adds support for Numascale NumaChip large-SMP systems. Needed to
 	  enable more than ~168 cores.
 	  If you don't have one of these, you should say N here.
-
+		
+config X86_PS4
+	bool "Sony PlayStation 4"
+	depends on X86_64
+	depends on X86_EXTENDED_PLATFORM
+	depends on PCI
+	help
+	  Select to include support for the Sony PlayStation 4 game console.
+ 
 config X86_VSMP
 	bool "ScaleMP vSMP"
 	select HYPERVISOR_GUEST
@@ -1256,7 +1264,8 @@ config TOSHIBA
 
 config I8K
 	tristate "Dell i8k legacy laptop support"
-	select HWMON
+	depends on HWMON
+	depends on PROC_FS
 	select SENSORS_DELL_SMM
 	help
 	  This option enables legacy /proc/i8k userspace interface in hwmon
@@ -1518,6 +1527,7 @@ config AMD_MEM_ENCRYPT
 	select ARCH_HAS_FORCE_DMA_UNENCRYPTED
 	select INSTRUCTION_DECODER
 	select ARCH_HAS_RESTRICTED_VIRTIO_MEMORY_ACCESS
+	select ARCH_HAS_CC_PLATFORM
 	help
 	  Say yes to enable support for the encryption of system memory.
 	  This requires an AMD processor that supports Secure Memory
@@ -1917,6 +1927,7 @@ config EFI
 	depends on ACPI
 	select UCS2_STRING
 	select EFI_RUNTIME_WRAPPERS
+	select ARCH_USE_MEMREMAP_PROT
 	help
 	  This enables the kernel to use EFI runtime services that are
 	  available (such as the EFI variable services).

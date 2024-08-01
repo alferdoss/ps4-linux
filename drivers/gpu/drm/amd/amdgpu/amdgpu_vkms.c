@@ -504,8 +504,8 @@ static int amdgpu_vkms_sw_fini(void *handle)
 	int i = 0;
 
 	for (i = 0; i < adev->mode_info.num_crtc; i++)
-		if (adev->mode_info.crtcs[i])
-			hrtimer_cancel(&adev->mode_info.crtcs[i]->vblank_timer);
+		if (adev->amdgpu_vkms_output[i].vblank_hrtimer.function)
+			hrtimer_cancel(&adev->amdgpu_vkms_output[i].vblank_hrtimer);
 
 	kfree(adev->mode_info.bios_hardcoded_edid);
 	kfree(adev->amdgpu_vkms_output);
@@ -535,6 +535,8 @@ static int amdgpu_vkms_hw_init(void *handle)
 	case CHIP_KAVERI:
 	case CHIP_KABINI:
 	case CHIP_MULLINS:
+	case CHIP_LIVERPOOL:
+	case CHIP_GLADIUS:
 		dce_v8_0_disable_dce(adev);
 		break;
 #endif
